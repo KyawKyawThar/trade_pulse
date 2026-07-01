@@ -1,0 +1,13 @@
+# Docker build context is the repo root (so shared/ is available). Keep the
+# context small and hermetic — exclude everything the build doesn't need.
+.git
+.github
+bin
+docs
+deployments
+**/*_test.go
+**/testdata
+*.md
+.DS_Store
+.idea
+.vscode
