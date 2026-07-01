@@ -1,0 +1,44 @@
+# .air.analytics.toml — analytics-service live reload
+# Run with:  air -c .air.analytics.toml
+# Or:        make dev   (runs server + analytics-service together)
+
+root    = "."
+tmp_dir = "tmp"
+
+[build]
+# Build the analytics-service binary only; server is handled by .air.toml
+cmd = "go build -o ./tmp/analytics-service ./cmd"
+bin = "tmp/analytics-service"
+
+# full_bin overrides bin at runtime; viper reads .env from cwd automatically
+full_bin = "./tmp/analytics-service"
+
+# Only watch service-relevant source paths
+include_dir = ["cmd"]
+include_ext = ["go"]
+exclude_regex = ["_test\\.go"]
+
+exclude_unchanged = true
+follow_symlink    = true
+log               = "tmp/air-agent.log"
+delay             = 0    # ms
+stop_on_error     = true
+send_interrupt    = true # send SIGINT so agent can graceful-shutdown
+kill_delay        = 500  # ms
+rerun             = false
+rerun_delay       = 500
+
+[log]
+time      = false
+main_only = false
+
+[color]
+# Use blue to visually distinguish agent logs from server logs in terminal
+main    = "blue"
+watcher = "cyan"
+build   = "yellow"
+runner  = "green"
+
+[misc]
+# false: let the server's Air instance own tmp dir cleanup so they don't race
+clean_on_exit = false

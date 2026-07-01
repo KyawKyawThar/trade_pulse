@@ -1,0 +1,10 @@
+go 1.26.1
+
+use (
+	./services/analytics-service
+	./services/api-service
+	./services/fx-rate-service
+	./services/ingestion-service
+	./services/notification-service
+	./services/processor-service
+)
