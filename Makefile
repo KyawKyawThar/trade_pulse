@@ -1,80 +1,223 @@
-# TradePulse — microservice dev Makefile
-#
-# Usage:
-#   make sync                       # add all service modules to go.work
-#   make dev   s=ingestion-service  # live-reload a service with air
-#   make run   s=analytics-service  # build + run once (no reload)
-#   make build s=ingestion-service  # build binary into <service>/tmp
-#   make tidy  s=analytics-service  # go mod tidy for one service
-#   make build-all                  # build every service
-#   make clean                      # remove all tmp/ build dirs
-#   make help                       # list targets + discovered services
+# ============================================================================
+# TradePulse Makefile
+# ============================================================================
 
 SERVICES_DIR := services
-# Auto-discover service dirs (each holds its own go.mod + .air.*.toml)
-SERVICES     := $(notdir $(wildcard $(SERVICES_DIR)/*))
+BIN_DIR := bin
+COMPOSE := docker compose -f developments/docker-compose.yml
 
-# Per-service air config, e.g. services/ingestion-service/.air.ingestion.toml
-AIR_CFG       = $(notdir $(firstword $(wildcard $(SERVICES_DIR)/$(s)/.air.*.toml)))
+# ---------------------------------------------------------------------------
+# Discover services automatically
+# ---------------------------------------------------------------------------
+
+SERVICES := $(notdir $(wildcard $(SERVICES_DIR)/*))
+
+MODULES := shared $(wildcard $(SERVICES_DIR)/*)
+
+AIR_CFG = $(notdir $(firstword $(wildcard $(SERVICES_DIR)/$(s)/.air.*.toml)))
+
+# ---------------------------------------------------------------------------
+# Build metadata
+# ---------------------------------------------------------------------------
+
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
+LDFLAGS := -s -w \
+	-X github.com/tradepulse/shared/version.Version=$(VERSION) \
+	-X github.com/tradepulse/shared/version.Commit=$(COMMIT) \
+	-X github.com/tradepulse/shared/version.Date=$(DATE)
 
 .DEFAULT_GOAL := help
 
+# ============================================================================
+# Help
+# ============================================================================
+
 .PHONY: help
 help:
-	@echo "TradePulse microservice targets:"
-	@echo "  make sync                  - go work use -r .  (register all modules)"
-	@echo "  make dev   s=<service>     - live reload with air"
-	@echo "  make run   s=<service>     - build + run once"
-	@echo "  make build s=<service>     - build binary into <service>/tmp"
-	@echo "  make tidy  s=<service>     - go mod tidy for one service"
-	@echo "  make build-all             - build every service"
-	@echo "  make clean                 - remove all tmp/ dirs"
 	@echo ""
-	@echo "Available services: $(SERVICES)"
+	@echo "TradePulse Make Targets"
+	@echo ""
+	@echo "Development"
+	@echo "  make sync"
+	@echo "  make dev s=<service>"
+	@echo "  make run s=<service>"
+	@echo "  make build s=<service>"
+	@echo "  make build-all"
+	@echo "  make tidy s=<service>"
+	@echo "  make clean"
+	@echo ""
+	@echo "Quality"
+	@echo "  make fmt"
+	@echo "  make fmt-check"
+	@echo "  make vet"
+	@echo "  make lint"
+	@echo "  make test"
+	@echo "  make ci"
+	@echo ""
+	@echo "Docker"
+	@echo "  make up"
+	@echo "  make up-full"
+	@echo "  make down"
+	@echo "  make logs"
+	@echo "  make docker-build"
+	@echo ""
+	@echo "Available services:"
+	@echo "  $(SERVICES)"
 
-# Fail fast when a target needs s= but none was given.
+# ============================================================================
+# Guard
+# ============================================================================
+
 .PHONY: guard-s
 guard-s:
 	@if [ -z "$(s)" ]; then \
-		echo "Error: missing service. Usage: make $(firstword $(MAKECMDGOALS)) s=<service>"; \
-		echo "Available services: $(SERVICES)"; \
+		echo "Usage: make <target> s=<service>"; \
+		echo "Available: $(SERVICES)"; \
 		exit 1; \
 	fi
 
-# ---- go workspace -----------------------------------------------------------
+# ============================================================================
+# Workspace
+# ============================================================================
+
 .PHONY: sync
 sync:
 	go work use -r .
-	@echo "go.work synced with all modules under ./$(SERVICES_DIR)"
+	@echo "Workspace synced."
 
-# ---- live reload (air) ------------------------------------------------------
+# ============================================================================
+# Development
+# ============================================================================
+
 .PHONY: dev
 dev: guard-s
-	@test -n "$(AIR_CFG)" || { echo "No .air.*.toml found in $(SERVICES_DIR)/$(s)"; exit 1; }
+	@test -n "$(AIR_CFG)" || { echo "No air config found."; exit 1; }
 	cd $(SERVICES_DIR)/$(s) && air -c $(AIR_CFG)
 
-# ---- build / run ------------------------------------------------------------
 .PHONY: build
 build: guard-s
-	cd $(SERVICES_DIR)/$(s) && go build -o ./tmp/$(s) ./cmd
+	@mkdir -p $(SERVICES_DIR)/$(s)/tmp
+	cd $(SERVICES_DIR)/$(s) && \
+	go build -trimpath \
+		-ldflags "$(LDFLAGS)" \
+		-o ./tmp/$(s) ./cmd
 
-.PHONY: run
-run: build
+.PHONY: run run-service
+run run-service: build
 	./$(SERVICES_DIR)/$(s)/tmp/$(s)
 
 .PHONY: build-all
 build-all:
+	@mkdir -p $(BIN_DIR)
 	@for svc in $(SERVICES); do \
-		echo ">> building $$svc"; \
-		( cd $(SERVICES_DIR)/$$svc && go build -o ./tmp/$$svc ./cmd ) || exit 1; \
+		echo ">> $$svc"; \
+		cd $(SERVICES_DIR)/$$svc && \
+		go build -trimpath \
+			-ldflags "$(LDFLAGS)" \
+			-o ../../$(BIN_DIR)/$$svc ./cmd || exit 1; \
+		cd ../..; \
 	done
 
-# ---- housekeeping -----------------------------------------------------------
 .PHONY: tidy
 tidy: guard-s
 	cd $(SERVICES_DIR)/$(s) && go mod tidy
 
+.PHONY: tidy-all
+tidy-all:
+	@for m in $(MODULES); do \
+		echo ">> $$m"; \
+		cd $$m && go mod tidy || exit 1; \
+		cd ..; \
+	done
+
 .PHONY: clean
 clean:
 	rm -rf $(SERVICES_DIR)/*/tmp
-	@echo "removed all tmp/ build dirs"
+	rm -rf $(BIN_DIR)
+
+# ============================================================================
+# Formatting
+# ============================================================================
+
+.PHONY: fmt
+fmt:
+	@gofmt -w $(shell find . -name '*.go')
+
+.PHONY: fmt-check
+fmt-check:
+	@out=$$(gofmt -l $(shell find . -name '*.go')); \
+	if [ -n "$$out" ]; then \
+		echo "$$out"; \
+		exit 1; \
+	fi
+
+# ============================================================================
+# Static analysis
+# ============================================================================
+
+.PHONY: vet
+vet:
+	@for m in $(MODULES); do \
+		echo ">> $$m"; \
+		cd $$m && go vet ./... || exit 1; \
+		cd ..; \
+	done
+
+.PHONY: lint
+lint:
+	@for m in $(MODULES); do \
+		echo ">> $$m"; \
+		cd $$m && golangci-lint run ./... || exit 1; \
+		cd ..; \
+	done
+
+# ============================================================================
+# Tests
+# ============================================================================
+
+.PHONY: test
+test:
+	@for m in $(MODULES); do \
+		echo ">> $$m"; \
+		cd $$m && go test -race -count=1 ./... || exit 1; \
+		cd ..; \
+	done
+
+.PHONY: ci
+ci: fmt-check vet lint test build-all
+
+# ============================================================================
+# Docker
+# ============================================================================
+
+.PHONY: docker-build
+docker-build:
+	@for svc in $(SERVICES); do \
+		echo ">> $$svc"; \
+		docker build \
+			-f $(SERVICES_DIR)/$$svc/Dockerfile \
+			--build-arg VERSION=$(VERSION) \
+			--build-arg COMMIT=$(COMMIT) \
+			--build-arg DATE=$(DATE) \
+			-t tradepulse/$$svc:$(VERSION) \
+			-t tradepulse/$$svc:latest . || exit 1; \
+	done
+
+.PHONY: up
+up:
+	$(COMPOSE) up -d
+
+.PHONY: up-full
+up-full:
+	$(COMPOSE) --profile full up -d --build
+
+.PHONY: down
+down:
+	$(COMPOSE) --profile full down
+
+.PHONY: logs
+logs:
+	$(COMPOSE) logs -f --tail=100

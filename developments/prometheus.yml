@@ -1,0 +1,26 @@
+# Prometheus scrape config for the TradePulse fleet. Each service exposes
+# /metrics on its container port 8080 (see shared/httpserver). Targets use the
+# compose service DNS names, so Prometheus must run on the same compose network
+# (it does — same file). Added in Sprint 4 (§ observability); kept here from
+# Sprint 0 so new services are one line away from being scraped.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+- job_name: tradepulse-services
+  metrics_path: /metrics
+  static_configs:
+  - targets:
+    - ingestion-service:8080
+    - processor-service:8080
+    - analytics-service:8080
+    - api-service:8080
+    - notification-service:8080
+    - fx-rate-service:8080
+    labels:
+      stack: tradepulse
+
+- job_name: prometheus
+  static_configs:
+  - targets: [ "localhost:9090" ]
