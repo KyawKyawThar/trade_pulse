@@ -41,14 +41,18 @@ Stores and brokers are split by **access pattern**, not by service. Don't reach 
 
 | # | Task | Est | Status |
 |---|---|---|---|
-| 1 | Monorepo layout: `services/{ingestion,processor,analytics,api,notification,fx-rate}`, `shared/`, `deployments/`, `docs/` (§ *Directory Structure*) | 3h | TODO |
-| 2 | `shared/domain` module: `TradeEvent`, `OrderBook`, `Candle`, `WhaleAlert`, `LiquidationAlert`, `FXRates` — defined once, imported by all 6 services (§ *Decision 6*) | 5h | TODO |
+| 1 | Monorepo layout: `services/{ingestion,processor,analytics,api,notification,fx-rate}`, `shared/`, `deployments/`, `docs/` (§ *Directory Structure*) | 3h | ✅ DONE |
+| 2 | `shared/domain` module: `TradeEvent`, `OrderBook`, `Candle`, `WhaleAlert`, `LiquidationAlert`, `FXRates` — defined once, imported by all 6 services (§ *Decision 6*) | 5h | ✅ DONE |
 | 3 | `deployments/docker-compose.yml`: Kafka + Zookeeper + Redis (the Sprint-1 backbone); RabbitMQ/ClickHouse/Prometheus/Grafana added in their sprints | 4h | TODO |
-| 4 | Root `Makefile`: `make build-all`, `make test`, `make run`, `make lint` | 2h | TODO |
-| 5 | CI: `go vet` + `golangci-lint` + `go test ./...` on PR; pin Go 1.22+ and all module versions | 4h | TODO |
-| 6 | Config + logging skeleton: Viper (env + YAML) and zerolog wired into a stub `main.go` per service (§ *Tech Stack*) | 3h | TODO |
+| 4 | Root `Makefile`: `make build-all`, `make test`, `make run`, `make lint` | 2h | PARTIAL — `build-all`/`dev`/`run`/`tidy` done; `test`/`lint` missing |
+| 5 | CI: `go vet` + `golangci-lint` + `go test ./...` on PR; pin Go 1.24+ and all module versions | 4h | TODO |
+| 6 | Config + logging skeleton: Viper (env + YAML) and zerolog wired into a stub `main.go` per service (§ *Tech Stack*) | 3h | ✅ DONE |
 
-**Deliverable:** `make build-all` green in CI; `docker-compose up` brings Kafka + Redis online; every service imports `shared/domain` without drift.
+**Done so far:** `make build-all` green across all 6 services; every service
+imports `shared/domain` without drift and boots the uniform skeleton (config →
+logging → `/health` + `/metrics` → graceful shutdown on SIGTERM).
+**Remaining for the deliverable:** `docker-compose up` brings Kafka + Redis
+online; `make test` / `make lint` targets; CI green on PR.
 
 ---
 
@@ -218,6 +222,6 @@ The MVP closes with Sprint 6. The hardening below runs as a gated epic; re-estim
 1. **Binance WS rate limits / bans** — ingestion stalls. Backoff + one shared connection per symbol group; baked into Sprint 1, not deferred.
 2. **Kafka rebalance → duplicate whale alerts** (§ *Decision 4*) — the most likely correctness bug. Redis dedup is not optional; verify it under a forced rebalance.
 3. **Slow WebSocket client blocks the broadcaster** (§ *Decision 5*) — freezes *all* clients. Drop policy must work before trusting concurrent-client numbers.
-4. **confluent-kafka-go cgo build friction** — CI/build delays. Pin the client version and document build deps in Sprint 0.
+4. **confluent-kafka-go cgo build friction** — CI/build delays. Pin the client version and document build deps when the client lands in Sprint 1.
 5. **External FX provider down / rate-limited** (§ *Service 6*) — must never block a `/convert` request or the tick path. fx-rate-service serves last-good rates under TTL with a circuit breaker; the api-service only ever reads Redis, never the provider. Verify the stale-serve path before trusting the endpoint.
 6. **Solo bus factor** — keep each sprint's slice independently demoable so progress is never blocked on a half-finished service.

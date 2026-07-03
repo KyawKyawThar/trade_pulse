@@ -136,9 +136,11 @@ This repository is being built sprint-by-sprint per [SPRINT_PLAN.md](SPRINT_PLAN
   packages, uniform service bootstrap (config → logging → health/metrics →
   graceful shutdown), Makefile with per-service build/run/live-reload. Every
   service boots, serves `/health` and `/metrics`, and shuts down cleanly on
-  SIGTERM. Remaining: docker-compose infra stack and CI/CD workflows.
-- **Sprint 1+ — upcoming.** Domain logic lands per the plan; each service's
-  `internal/service.go` documents exactly which files arrive in which sprint.
+  SIGTERM. Remaining: docker-compose infra stack (Kafka + Zookeeper + Redis),
+  `make test` / `make lint`, and CI.
+- **Sprint 1+ — upcoming.** Domain logic lands per the plan, starting with
+  ingestion (Binance WebSocket → Kafka); each service's `internal/service.go`
+  documents exactly which files arrive in which sprint.
 
 ---
 
