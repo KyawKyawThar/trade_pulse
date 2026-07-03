@@ -2,7 +2,7 @@
 
 **Mode:** Solo developer · 1-week sprints · MVP-first
 **MVP target (Definition of Done):** the *first end-to-end demonstrable pipeline* — a live Binance trade flows ingestion → Kafka → processor → Redis → real-time WebSocket push; a whale-sized trade flows processor → RabbitMQ → notification → Telegram, exactly once; and a client can convert any symbol's live price into a fiat quote (`/convert?quote=EUR`) off the cached FX rate. The analytics (candles/VWAP in ClickHouse), alert path, and conversion are all queryable/observable. All **6 services** participate.
-**Source of truth:** [TRADEPULSE_ARCHITECTURE FINAL.md](TRADEPULSE_ARCHITECTURE%20FINAL.md) — section references (§) below point into it (e.g. § *Why Kafka AND RabbitMQ*, *Decision 4*, *Pattern 5*, *Service 6*, *Phase 1*).
+**Source of truth:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — section references (§) below point into it (e.g. § *Why Kafka AND RabbitMQ*, *Decision 4*, *Pattern 5*, *Service 6*, *Phase 1*).
 **Path to GA:** the *Production Hardening* items (§ Phase 4) are baked in as non-negotiables from the first event-emitting sprint — graceful shutdown, reconnection/backoff, idempotent dedup, drop-slow-clients, serve-stale on upstream failure — not retrofitted. Full hardening + load proof runs as a gated epic (Sprint 7) after the MVP.
 
 > **Sequencing principle.** The architecture is broker-decoupled (§ *Inter-Service Communication*: "No direct HTTP calls between services"). So the *shared domain types and Kafka topic contract come first* — every later service is a producer/consumer on a backbone that already exists. Build the unglamorous ingestion → store → serve spine before the WebSocket and alert demos. Don't skip the foundation to show the dashboard.

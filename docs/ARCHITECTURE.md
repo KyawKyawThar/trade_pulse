@@ -21,7 +21,8 @@
 12. [Key Engineering Decisions](#key-engineering-decisions)
 13. [Performance Targets](#performance-targets)
 14. [Build Phases](#build-phases)
-15. [Go File Size Rules](#go-file-size-rules)
+15. [Engineering Highlights](#engineering-highlights)
+16. [Go File Size Rules](#go-file-size-rules)
 
 ---
 
@@ -174,7 +175,7 @@ Each service:
 │  │ RabbitMQ Consumer│  │  │  GET /orderbook/:symbol                    │
 │  └────────┬─────────┘  │  │  GET /candles/:symbol                      │
 │           │            │  │  GET /analytics/:symbol                    │
-│  ┌────────▼─────────┐  │  │  GET /convert/:symbol?quote=EUR  ◄── new   │
+│  ┌────────▼─────────┐  │  │  GET /convert/:symbol?quote=EUR            │
 │  │  Alert Router    │  │  │                                            │
 │  └────────┬─────────┘  │  │  WebSocket Server                          │
 │           │            │  │  ws://.../ws/trades/BTCUSDT                │
@@ -251,22 +252,6 @@ Whale alert flow (RabbitMQ):
   → sends ONE email to user ✓
   (if 3 notification instances running, only ONE processes it)
 ```
-
-### Same Pattern as MEVWatch
-
-```
-MEVWatch:
-  Kafka    → domain events (block detected, tx seen)
-  RabbitMQ → simulation jobs (run this simulation once)
-
-TradePulse:
-  Kafka    → trade events (process and analyze)
-  RabbitMQ → notification tasks (send this alert once)
-```
-
-Consistent architectural thinking across both projects.
-
----
 
 ## Service Breakdown
 
@@ -847,7 +832,7 @@ ws://localhost:8080/ws/alerts
 
 | Layer            | Technology          | Why                                             |
 |------------------|---------------------|-------------------------------------------------|
-| Language         | Go 1.22+            | Native concurrency, low latency, strong stdlib  |
+| Language         | Go 1.24+            | Native concurrency, low latency, strong stdlib  |
 | Event Streaming  | Kafka               | High-volume trades, replayable, multi-consumer  |
 | Task Queue       | RabbitMQ            | One-time alert dispatch, ack/nack semantics     |
 | Cache            | Redis 7             | Sub-millisecond reads, dedup, rate limiting     |
@@ -916,7 +901,8 @@ tradepulse/
 │   │   │   │   ├── trades.go
 │   │   │   │   ├── orderbook.go
 │   │   │   │   ├── candles.go
-│   │   │   │   └── analytics.go
+│   │   │   │   ├── analytics.go
+│   │   │   │   └── convert.go
 │   │   │   ├── ws/
 │   │   │   │   ├── hub.go
 │   │   │   │   ├── client.go
@@ -927,24 +913,43 @@ tradepulse/
 │   │   ├── Dockerfile
 │   │   └── go.mod
 │   │
-│   └── notification-service/
+│   ├── notification-service/
+│   │   ├── cmd/main.go
+│   │   ├── internal/
+│   │   │   ├── service.go
+│   │   │   ├── consumer.go
+│   │   │   ├── router.go
+│   │   │   ├── email.go
+│   │   │   ├── telegram.go
+│   │   │   ├── webhook.go
+│   │   │   └── dedup.go
+│   │   ├── Dockerfile
+│   │   └── go.mod
+│   │
+│   └── fx-rate-service/
 │       ├── cmd/main.go
 │       ├── internal/
 │       │   ├── service.go
-│       │   ├── consumer.go
-│       │   ├── router.go
-│       │   ├── email.go
-│       │   ├── telegram.go
-│       │   ├── webhook.go
-│       │   └── dedup.go
+│       │   ├── poller.go
+│       │   ├── provider.go
+│       │   ├── cache.go
+│       │   ├── staleness.go
+│       │   └── health.go
 │       ├── Dockerfile
 │       └── go.mod
 │
-├── shared/                         ← shared domain types across services
+├── shared/                         ← one module imported by every service
 │   ├── domain/
 │   │   ├── trade.go               — TradeEvent, OrderBook structs
 │   │   ├── candle.go              — Candle OHLCV struct
-│   │   └── alert.go               — WhaleAlert, LiquidationAlert structs
+│   │   ├── alert.go               — WhaleAlert, LiquidationAlert structs
+│   │   ├── fx.go                  — FXRates + fx:rates key/TTL
+│   │   └── broker.go              — Kafka topic / RabbitMQ queue / Redis key names
+│   ├── config/                    — Viper loader (TRADEPULSE_* env + YAML)
+│   ├── log/                       — zerolog setup
+│   ├── httpserver/                — /health + /metrics + graceful shutdown
+│   ├── runtime/                   — signal-aware ctx + errgroup lifecycle
+│   ├── version/                   — build metadata (ldflags)
 │   └── go.mod
 │
 ├── deployments/
@@ -956,9 +961,12 @@ tradepulse/
 │           └── tradepulse.json
 │
 ├── docs/
-│   └── ARCHITECTURE.md            ← this file
+│   ├── ARCHITECTURE.md            ← this file
+│   └── CONTRIBUTING.md            ← how to work in the monorepo
 │
-├── Makefile                       ← make run, make test, make build-all
+├── go.work                        ← ties all modules together for local dev
+├── SPRINT_PLAN.md                 ← delivery plan, sprint by sprint
+├── Makefile                       ← build-all / dev (live reload) / run / tidy
 └── README.md
 ```
 
@@ -1099,48 +1107,48 @@ pattern. Cost accepted: one more service to deploy and monitor.
 ### Phase 1 — Core Pipeline (Week 1)
 
 ```
-□ ingestion-service: Binance WebSocket → Kafka (BTC, ETH, SOL)
-□ processor-service: Kafka consumer → worker pool → Redis
-□ api-service: GET /trades, GET /orderbook (reads from Redis)
-□ Docker Compose: Kafka + Zookeeper + Redis
-□ Basic health check endpoints
+- ingestion-service: Binance WebSocket → Kafka (BTC, ETH, SOL)
+- processor-service: Kafka consumer → worker pool → Redis
+- api-service: GET /trades, GET /orderbook (reads from Redis)
+- Docker Compose: Kafka + Zookeeper + Redis
+- Basic health check endpoints
 ```
 
 ### Phase 2 — Analytics + WebSocket (Week 2)
 
 ```
-□ analytics-service: candle aggregation → ClickHouse
-□ api-service WebSocket: real-time trade push to clients
-□ VWAP and volume endpoints
-□ Docker Compose: add ClickHouse
-□ Prometheus metrics on all services
+- analytics-service: candle aggregation → ClickHouse
+- api-service WebSocket: real-time trade push to clients
+- VWAP and volume endpoints
+- Docker Compose: add ClickHouse
+- Prometheus metrics on all services
 ```
 
 ### Phase 3 — RabbitMQ + Notifications (Week 3)
 
 ```
-□ processor-service: whale detection → RabbitMQ
-□ notification-service: RabbitMQ consumer → Telegram
-□ Redis dedup for notifications
-□ Docker Compose: add RabbitMQ
-□ Grafana dashboard
+- processor-service: whale detection → RabbitMQ
+- notification-service: RabbitMQ consumer → Telegram
+- Redis dedup for notifications
+- Docker Compose: add RabbitMQ
+- Grafana dashboard
 ```
 
 ### Phase 4 — Production Hardening (Week 4)
 
 ```
-□ Graceful shutdown (SIGTERM) on all services
-□ Exponential backoff reconnection (Binance WS, Kafka, RabbitMQ)
-□ Circuit breaker on Kafka producer
-□ Rate limiter on REST API
-□ Structured logging with zerolog
-□ Load testing with k6
-□ README with architecture diagram and setup guide
+- Graceful shutdown (SIGTERM) on all services
+- Exponential backoff reconnection (Binance WS, Kafka, RabbitMQ)
+- Circuit breaker on Kafka producer
+- Rate limiter on REST API
+- Structured logging with zerolog
+- Load testing with k6
+- README with architecture diagram and setup guide
 ```
 
 ---
 
-## What This Demonstrates to a Senior Interviewer
+## Engineering Highlights
 
 ```
 Go Concurrency:
