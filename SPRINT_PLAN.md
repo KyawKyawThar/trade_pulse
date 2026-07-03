@@ -41,18 +41,19 @@ Stores and brokers are split by **access pattern**, not by service. Don't reach 
 
 | # | Task | Est | Status |
 |---|---|---|---|
-| 1 | Monorepo layout: `services/{ingestion,processor,analytics,api,notification,fx-rate}`, `shared/`, `deployments/`, `docs/` (§ *Directory Structure*) | 3h | ✅ DONE |
+| 1 | Monorepo layout: `services/{ingestion,processor,analytics,api,notification,fx-rate}`, `shared/`, `developments/`, `docs/` (§ *Directory Structure*) | 3h | ✅ DONE |
 | 2 | `shared/domain` module: `TradeEvent`, `OrderBook`, `Candle`, `WhaleAlert`, `LiquidationAlert`, `FXRates` — defined once, imported by all 6 services (§ *Decision 6*) | 5h | ✅ DONE |
-| 3 | `deployments/docker-compose.yml`: Kafka + Zookeeper + Redis (the Sprint-1 backbone); RabbitMQ/ClickHouse/Prometheus/Grafana added in their sprints | 4h | TODO |
-| 4 | Root `Makefile`: `make build-all`, `make test`, `make run`, `make lint` | 2h | PARTIAL — `build-all`/`dev`/`run`/`tidy` done; `test`/`lint` missing |
+| 3 | `developments/docker-compose.yml`: Kafka + Zookeeper + Redis (the Sprint-1 backbone); RabbitMQ/ClickHouse/Prometheus/Grafana staged behind compose profiles for their sprints | 4h | ✅ DONE |
+| 4 | Root `Makefile`: `make build-all`, `make test`, `make run`, `make lint` (+ `fmt`, `vet`, `ci`, `up`/`down`/`logs`) | 2h | ✅ DONE |
 | 5 | CI: `go vet` + `golangci-lint` + `go test ./...` on PR; pin Go 1.24+ and all module versions | 4h | TODO |
 | 6 | Config + logging skeleton: Viper (env + YAML) and zerolog wired into a stub `main.go` per service (§ *Tech Stack*) | 3h | ✅ DONE |
 
-**Done so far:** `make build-all` green across all 6 services; every service
-imports `shared/domain` without drift and boots the uniform skeleton (config →
-logging → `/health` + `/metrics` → graceful shutdown on SIGTERM).
-**Remaining for the deliverable:** `docker-compose up` brings Kafka + Redis
-online; `make test` / `make lint` targets; CI green on PR.
+**Done so far:** `make up` brings Kafka + Zookeeper + Redis online (healthy);
+`make build-all` / `test` / `lint` / `vet` green across all 6 services + shared;
+every service imports `shared/domain` without drift and boots the uniform
+skeleton (config → logging → `/health` + `/metrics` → graceful shutdown on
+SIGTERM), with version/commit build metadata injected via ldflags.
+**Remaining for the deliverable:** CI green on PR (task 5).
 
 ---
 

@@ -1,0 +1,173 @@
+name: trade_plus
+
+x-service-base: &service-base
+  # Shared defaults for every TradePulse service container. Each service sets its
+  # own build target and host port; everything else (broker addresses, restart
+  # policy, healthcheck) is identical, so it lives here once.
+  restart: unless-stopped
+  profiles: ["app", "full"]
+  environment: &service-env
+    TRADEPULSE_ENV: dev
+    TRADEPULSE_LOG_LEVEL: info
+    TRADEPULSE_HTTP_ADDR: ":8080"
+    TRADEPULSE_KAFKA_BROKERS: "kafka:29092"
+    TRADEPULSE_REDIS_ADDR: "redis:6379"
+    TRADEPULSE_RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+    TRADEPULSE_CLICKHOUSE_ADDR: "clickhouse:9000"
+  healthcheck:
+    # distroless image has no shell/curl; Go services could ship a tiny health
+    # probe binary. For now compose relies on the app logging readiness; wire a
+    # real probe in Sprint 7 hardening.
+    disable: true
+
+services:
+  # ---------------------------------------------------------------- infra: core
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: srvr
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc -w 2 localhost 2181 | grep Mode"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "${KAFKA_HOST_PORT:-19092}:9092" # host clients (your laptop) reach Kafka here
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: INTERNAL for in-network containers (kafka:29092),
+      # EXTERNAL for the host (localhost:9092). Getting this wrong is the classic
+      # "works in-cluster, refused from laptop" Kafka footgun.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-19092}
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "kafka-topics",
+          "--bootstrap-server",
+          "localhost:29092",
+          "--list",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"] # cache only, no persistence
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    profiles: ["analytics", "full"]
+    ports:
+      - "${CLICKHOUSE_HTTP_HOST_PORT:-8124}:8123" # HTTP
+      - "${CLICKHOUSE_NATIVE_HOST_PORT:-9001}:9000" # native TCP
+    environment:
+      CLICKHOUSE_DB: tradepulse
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    profiles: ["alerts", "full"]
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5672}:5672" # AMQP
+      - "${RABBITMQ_MGMT_HOST_PORT:-15672}:15672" # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: ["observability", "full"]
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: ["observability", "full"]
+    depends_on: [prometheus]
+    ports:
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  # ------------------------------------------------------------------- services
+  ingestion-service:
+    <<: *service-base
+    build: { context: .., dockerfile: services/ingestion-service/Dockerfile }
+    ports: ["${INGESTION_HOST_PORT:-8081}:8080"]
+    depends_on:
+      kafka: { condition: service_healthy }
+
+  processor-service:
+    <<: *service-base
+    build: { context: .., dockerfile: services/processor-service/Dockerfile }
+    ports: ["${PROCESSOR_HOST_PORT:-8082}:8080"]
+    depends_on:
+      kafka: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  analytics-service:
+    <<: *service-base
+    build: { context: .., dockerfile: services/analytics-service/Dockerfile }
+    ports: ["${ANALYTICS_HOST_PORT:-8083}:8080"]
+    depends_on:
+      kafka: { condition: service_healthy }
+
+  api-service:
+    <<: *service-base
+    build: { context: .., dockerfile: services/api-service/Dockerfile }
+    ports: ["${API_HOST_PORT:-8080}:8080"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  notification-service:
+    <<: *service-base
+    build: { context: .., dockerfile: services/notification-service/Dockerfile }
+    ports: ["${NOTIFICATION_HOST_PORT:-8085}:8080"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  fx-rate-service:
+    <<: *service-base
+    build: { context: .., dockerfile: services/fx-rate-service/Dockerfile }
+    ports: ["${FX_RATE_HOST_PORT:-8086}:8080"]
+    depends_on:
+      redis: { condition: service_healthy }

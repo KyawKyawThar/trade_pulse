@@ -64,10 +64,11 @@ Every service exposes `GET /health` and `GET /metrics` on its ops port.
 │   ├── httpserver/           #   /health + /metrics + graceful shutdown
 │   ├── runtime/              #   signal-aware ctx + errgroup process lifecycle
 │   └── version/              #   build metadata (ldflags)
+├── developments/             # docker-compose (profiled), prometheus, grafana
 ├── docs/                     # ARCHITECTURE.md + CONTRIBUTING.md
 ├── SPRINT_PLAN.md            # delivery plan, sprint by sprint
 ├── go.work                   # ties the modules together for local dev
-└── Makefile                  # build-all / dev (live reload) / run / tidy
+└── Makefile                  # ci / build-all / dev (live reload) / up / down
 ```
 
 **Why a multi-module monorepo + `go.work`?** Each service is its own module so it
@@ -82,30 +83,41 @@ through its `go.mod` + `replace`, not the workspace. See
 
 ## Quickstart
 
-Requires **Go 1.24+** and (for live reload) **[air](https://github.com/air-verse/air)**.
+Requires **Go 1.24+**, **Docker**, **golangci-lint v2**, and (for live reload)
+**[air](https://github.com/air-verse/air)**.
 
 ```bash
 # 1. Register all modules in the go.work workspace
 make sync
 
-# 2. Build every service binary (into services/<name>/tmp/)
-make build-all
+# 2. Run the full local quality gate
+make ci            # fmt-check + vet + lint + race tests + build-all (into ./bin)
 
-# 3. Run a single service locally
+# 3. Bring up the core backbone (Kafka + Zookeeper + Redis)
+make up            # == docker compose -f developments/docker-compose.yml up -d
+
+# 4. Run a single service locally against that backbone
 make run s=fx-rate-service      # uses localhost defaults; override with TRADEPULSE_* env
 curl localhost:8086/health
 
-# 4. Or develop one service with live reload
+# 5. Or develop one service with live reload
 make dev s=api-service
 
-# 5. Per-module hygiene
-make tidy s=analytics-service
+make logs          # tail the compose stack
+make down          # tear it down
 ```
 
-`make help` lists every target and the auto-discovered services. The
-docker-compose infra stack (Kafka + Zookeeper + Redis, staged behind compose
-profiles for ClickHouse / RabbitMQ / Prometheus + Grafana) and the CI pipeline
-land as the remaining Sprint 0 tasks — see [SPRINT_PLAN.md](SPRINT_PLAN.md).
+Infra is staged behind compose **profiles** so the default `up` stays light:
+
+| Command | Brings up |
+|---|---|
+| `make up` | kafka, zookeeper, redis (Sprint 0/1 backbone) |
+| `docker compose --profile analytics up -d` | + ClickHouse (Sprint 3) |
+| `docker compose --profile alerts up -d` | + RabbitMQ (Sprint 6) |
+| `docker compose --profile observability up -d` | + Prometheus + Grafana (Sprint 4/6) |
+| `make up-full` | everything, services built from source |
+
+`make help` lists every target and the auto-discovered services.
 
 ---
 
@@ -134,10 +146,11 @@ This repository is being built sprint-by-sprint per [SPRINT_PLAN.md](SPRINT_PLAN
 - **Sprint 0 — Foundation: in progress.** Done so far: multi-module monorepo +
   `go.work`, shared domain contract (`shared/domain`), config/logging/runtime
   packages, uniform service bootstrap (config → logging → health/metrics →
-  graceful shutdown), Makefile with per-service build/run/live-reload. Every
-  service boots, serves `/health` and `/metrics`, and shuts down cleanly on
-  SIGTERM. Remaining: docker-compose infra stack (Kafka + Zookeeper + Redis),
-  `make test` / `make lint`, and CI.
+  graceful shutdown), docker-compose backbone (Kafka + Zookeeper + Redis,
+  healthy under `make up`), and the Makefile quality gate (`make ci` =
+  fmt-check + vet + lint + race tests + build-all). Every service boots, serves
+  `/health` and `/metrics`, and shuts down cleanly on SIGTERM. Remaining: CI
+  workflow on PR.
 - **Sprint 1+ — upcoming.** Domain logic lands per the plan, starting with
   ingestion (Binance WebSocket → Kafka); each service's `internal/service.go`
   documents exactly which files arrive in which sprint.
