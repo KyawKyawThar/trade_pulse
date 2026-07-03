@@ -25,9 +25,9 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 LDFLAGS := -s -w \
-	-X github.com/tradepulse/shared/version.Version=$(VERSION) \
-	-X github.com/tradepulse/shared/version.Commit=$(COMMIT) \
-	-X github.com/tradepulse/shared/version.Date=$(DATE)
+	-X trade_pulse/shared/version.Version=$(VERSION) \
+	-X trade_pulse/shared/version.Commit=$(COMMIT) \
+	-X trade_pulse/shared/version.Date=$(DATE)
 
 .DEFAULT_GOAL := help
 
@@ -129,8 +129,7 @@ tidy: guard-s
 tidy-all:
 	@for m in $(MODULES); do \
 		echo ">> $$m"; \
-		cd $$m && go mod tidy || exit 1; \
-		cd ..; \
+		( cd $$m && go mod tidy ) || exit 1; \
 	done
 
 .PHONY: clean
@@ -162,16 +161,14 @@ fmt-check:
 vet:
 	@for m in $(MODULES); do \
 		echo ">> $$m"; \
-		cd $$m && go vet ./... || exit 1; \
-		cd ..; \
+		( cd $$m && go vet ./... ) || exit 1; \
 	done
 
 .PHONY: lint
 lint:
 	@for m in $(MODULES); do \
 		echo ">> $$m"; \
-		cd $$m && golangci-lint run ./... || exit 1; \
-		cd ..; \
+		( cd $$m && golangci-lint run ./... ) || exit 1; \
 	done
 
 # ============================================================================
@@ -182,8 +179,7 @@ lint:
 test:
 	@for m in $(MODULES); do \
 		echo ">> $$m"; \
-		cd $$m && go test -race -count=1 ./... || exit 1; \
-		cd ..; \
+		( cd $$m && go test -race -count=1 ./... ) || exit 1; \
 	done
 
 .PHONY: ci

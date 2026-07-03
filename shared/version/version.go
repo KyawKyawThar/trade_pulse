@@ -1,10 +1,10 @@
 package version
 
-// These are overridden at build time, e.g.
+// These are overridden at build time (-X only works on vars, not consts), e.g.
 //
-//	go build -ldflags "-X github.com/tradepulse/shared/version.Commit=$(git rev-parse --short HEAD)"
+//	go build -ldflags "-X trade_pulse/shared/version.Commit=$(git rev-parse --short HEAD)"
 
-const (
+var (
 	Version = "dev"
 	Commit  = "none"
 	Date    = "unknown"
