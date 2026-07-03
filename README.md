@@ -5,8 +5,9 @@
 
 TradePulse ingests live trades from a crypto exchange, streams them through Kafka
 for processing and analytics, serves real-time data to clients over REST and
-WebSocket, and dispatches whale/liquidation alerts through RabbitMQ — exactly
-once. It's built to demonstrate production-grade Go: worker pools, fan-out,
+WebSocket, and dispatches whale/liquidation alerts through RabbitMQ —
+effectively once (at-least-once delivery made safe by idempotent, Redis-deduped
+consumers). It's built to demonstrate production-grade Go: worker pools, fan-out,
 graceful shutdown, circuit breakers, idempotent consumers, and broker-based
 decoupling.
 
@@ -63,55 +64,48 @@ Every service exposes `GET /health` and `GET /metrics` on its ops port.
 │   ├── httpserver/           #   /health + /metrics + graceful shutdown
 │   ├── runtime/              #   signal-aware ctx + errgroup process lifecycle
 │   └── version/              #   build metadata (ldflags)
-├── deployments/              # docker-compose (profiled), prometheus, grafana, clickhouse schema
 ├── docs/                     # ARCHITECTURE.md + CONTRIBUTING.md
-├── .github/workflows/        # CI (PR gate) + Release (tag → GHCR)
+├── SPRINT_PLAN.md            # delivery plan, sprint by sprint
 ├── go.work                   # ties the modules together for local dev
-└── Makefile                  # build-all / test / lint / run / ...
+└── Makefile                  # build-all / dev (live reload) / run / tidy
 ```
 
 **Why a multi-module monorepo + `go.work`?** Each service is its own module so it
 versions and builds independently (and its Docker image only pulls its own deps).
 `go.work` stitches them together so local edits to `shared/` are picked up
-instantly without publishing. CI deliberately runs with `GOWORK=off` so it
-validates each module exactly as `docker build` does — through its `go.mod` +
-`replace`, not the workspace. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+instantly without publishing. CI (landing in Sprint 0) deliberately runs with
+`GOWORK=off` so it validates each module exactly as `docker build` does —
+through its `go.mod` + `replace`, not the workspace. See
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ---
 
 ## Quickstart
 
-Requires **Go 1.24+**, **Docker**, and (for linting) **golangci-lint v2**.
+Requires **Go 1.24+** and (for live reload) **[air](https://github.com/air-verse/air)**.
 
 ```bash
-# 1. Build every service binary into ./bin
+# 1. Register all modules in the go.work workspace
+make sync
+
+# 2. Build every service binary (into services/<name>/tmp/)
 make build-all
 
-# 2. Run the full local quality gate (what CI runs)
-make ci            # gofmt + vet + race tests + build
-
-# 3. Bring up the core backbone (Kafka + Zookeeper + Redis)
-make run           # == docker compose -f deployments/docker-compose.yml up -d
-
-# 4. Run a single service locally against that backbone
-./bin/fx-rate-service           # uses localhost defaults; override with TRADEPULSE_* env
+# 3. Run a single service locally
+make run s=fx-rate-service      # uses localhost defaults; override with TRADEPULSE_* env
 curl localhost:8086/health
 
-# 5. Or run the entire stack (infra + all six services) in containers
-make up-full       # docker compose --profile full up -d --build
-make logs
-make down
+# 4. Or develop one service with live reload
+make dev s=api-service
+
+# 5. Per-module hygiene
+make tidy s=analytics-service
 ```
 
-Infra is staged behind compose **profiles** so the default `up` stays light:
-
-| Command | Brings up |
-|---|---|
-| `make run` | kafka, zookeeper, redis (Sprint 0/1 backbone) |
-| `docker compose --profile analytics up -d` | + ClickHouse (Sprint 3) |
-| `docker compose --profile alerts up -d` | + RabbitMQ (Sprint 6) |
-| `docker compose --profile observability up -d` | + Prometheus + Grafana (Sprint 4/6) |
-| `make up-full` | everything, services built from source |
+`make help` lists every target and the auto-discovered services. The
+docker-compose infra stack (Kafka + Zookeeper + Redis, staged behind compose
+profiles for ClickHouse / RabbitMQ / Prometheus + Grafana) and the CI pipeline
+land as the remaining Sprint 0 tasks — see [SPRINT_PLAN.md](SPRINT_PLAN.md).
 
 ---
 
@@ -137,11 +131,13 @@ The full schema lives in [shared/config/config.go](shared/config/config.go).
 
 This repository is being built sprint-by-sprint per [SPRINT_PLAN.md](SPRINT_PLAN.md).
 
-- **Sprint 0 — Foundation: ✅ done.** Monorepo, shared domain contract, uniform
-  service bootstrap (config → logging → health/metrics → graceful shutdown),
-  docker-compose, Makefile, CI/CD. Every service boots, serves `/health` and
-  `/metrics`, and shuts down cleanly on SIGTERM.
-- **Sprint 1+ — in progress.** Domain logic lands per the plan; each service's
+- **Sprint 0 — Foundation: in progress.** Done so far: multi-module monorepo +
+  `go.work`, shared domain contract (`shared/domain`), config/logging/runtime
+  packages, uniform service bootstrap (config → logging → health/metrics →
+  graceful shutdown), Makefile with per-service build/run/live-reload. Every
+  service boots, serves `/health` and `/metrics`, and shuts down cleanly on
+  SIGTERM. Remaining: docker-compose infra stack and CI/CD workflows.
+- **Sprint 1+ — upcoming.** Domain logic lands per the plan; each service's
   `internal/service.go` documents exactly which files arrive in which sprint.
 
 ---
