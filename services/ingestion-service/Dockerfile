@@ -1,5 +1,7 @@
 FROM golang:1.26.1-alpine AS build
 
+WORKDIR /src
+
 # Copy only the modules this service needs, deps first for layer caching.
 
 COPY shared/ ./shared
