@@ -1,0 +1,47 @@
+# Dependabot keeps dependencies current across the monorepo. Each Go module is a
+# separate ecosystem entry (Dependabot does not auto-discover nested go.mod), so
+# adding a service means adding its directory here. Grouped updates keep PR noise
+# down — one PR per module per week instead of one per dependency.
+version: 2
+updates:
+# GitHub Actions used by the workflows.
+- package-ecosystem: github-actions
+  directory: /
+  schedule: { interval: weekly }
+  groups:
+    actions: { patterns: [ "*" ] }
+
+# Go modules — one entry per module.
+- package-ecosystem: gomod
+  directory: /shared
+  schedule: { interval: weekly }
+  groups: { go-deps: { patterns: [ "*" ] } }
+- package-ecosystem: gomod
+  directory: /services/ingestion-service
+  schedule: { interval: weekly }
+  groups: { go-deps: { patterns: [ "*" ] } }
+- package-ecosystem: gomod
+  directory: /services/processor-service
+  schedule: { interval: weekly }
+  groups: { go-deps: { patterns: [ "*" ] } }
+- package-ecosystem: gomod
+  directory: /services/analytics-service
+  schedule: { interval: weekly }
+  groups: { go-deps: { patterns: [ "*" ] } }
+- package-ecosystem: gomod
+  directory: /services/api-service
+  schedule: { interval: weekly }
+  groups: { go-deps: { patterns: [ "*" ] } }
+- package-ecosystem: gomod
+  directory: /services/notification-service
+  schedule: { interval: weekly }
+  groups: { go-deps: { patterns: [ "*" ] } }
+- package-ecosystem: gomod
+  directory: /services/fx-rate-service
+  schedule: { interval: weekly }
+  groups: { go-deps: { patterns: [ "*" ] } }
+
+# Base images in the Dockerfiles.
+- package-ecosystem: docker
+  directory: /services/ingestion-service
+  schedule: { interval: weekly }
