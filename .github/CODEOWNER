@@ -1,0 +1,16 @@
+# Code ownership drives automatic review requests. With more than one engineer,
+# this routes each PR to whoever owns the touched area. Replace the placeholder
+# handles with real GitHub usernames / teams.
+#
+# Format: <path glob>  <owner> [<owner>...]
+
+# Default owner for everything not matched below.
+*                       @KyawKyawThar
+
+# The shared domain contract is high-blast-radius (every service imports it) —
+# require an extra reviewer here.
+/shared/                @KyawKyawThar
+
+# Infra & CI changes affect the whole fleet.
+/deployments/           @KyawKyawThar
+/.github/               @KyawKyawThar
