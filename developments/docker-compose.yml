@@ -27,9 +27,8 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_4LW_COMMANDS_WHITELIST: srvr
     healthcheck:
-      test: ["CMD-SHELL", "echo srvr | nc -w 2 localhost 2181 | grep Mode"]
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep imok"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,7 +39,7 @@ services:
       zookeeper:
         condition: service_healthy
     ports:
-      - "${KAFKA_HOST_PORT:-19092}:9092" # host clients (your laptop) reach Kafka here
+      - "9092:9092" # host clients (your laptop) reach Kafka here
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -49,7 +48,7 @@ services:
       # "works in-cluster, refused from laptop" Kafka footgun.
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-19092}
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
@@ -70,7 +69,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"] # cache only, no persistence
     ports:
-      - "${REDIS_HOST_PORT:-6380}:6379"
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -81,8 +80,8 @@ services:
     image: clickhouse/clickhouse-server:24.3
     profiles: ["analytics", "full"]
     ports:
-      - "${CLICKHOUSE_HTTP_HOST_PORT:-8124}:8123" # HTTP
-      - "${CLICKHOUSE_NATIVE_HOST_PORT:-9001}:9000" # native TCP
+      - "8124:8124" # HTTP
+      - "9001:9001" # native TCP
     environment:
       CLICKHOUSE_DB: tradepulse
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
@@ -99,8 +98,8 @@ services:
     image: rabbitmq:3.13-management
     profiles: ["alerts", "full"]
     ports:
-      - "${RABBITMQ_HOST_PORT:-5672}:5672" # AMQP
-      - "${RABBITMQ_MGMT_HOST_PORT:-15672}:15672" # management UI
+      - "5672:5672" # AMQP
+      - "15672:15672" # management UI
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -111,7 +110,7 @@ services:
     image: prom/prometheus:v2.53.0
     profiles: ["observability", "full"]
     ports:
-      - "${PROMETHEUS_HOST_PORT:-9090}:9090"
+      - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
@@ -120,7 +119,7 @@ services:
     profiles: ["observability", "full"]
     depends_on: [prometheus]
     ports:
-      - "${GRAFANA_HOST_PORT:-3000}:3000"
+      - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
@@ -132,14 +131,14 @@ services:
   ingestion-service:
     <<: *service-base
     build: { context: .., dockerfile: services/ingestion-service/Dockerfile }
-    ports: ["${INGESTION_HOST_PORT:-8081}:8080"]
+    ports: ["8081:8080"]
     depends_on:
       kafka: { condition: service_healthy }
 
   processor-service:
     <<: *service-base
     build: { context: .., dockerfile: services/processor-service/Dockerfile }
-    ports: ["${PROCESSOR_HOST_PORT:-8082}:8080"]
+    ports: ["8082:8080"]
     depends_on:
       kafka: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -147,27 +146,27 @@ services:
   analytics-service:
     <<: *service-base
     build: { context: .., dockerfile: services/analytics-service/Dockerfile }
-    ports: ["${ANALYTICS_HOST_PORT:-8083}:8080"]
+    ports: ["8083:8080"]
     depends_on:
       kafka: { condition: service_healthy }
 
   api-service:
     <<: *service-base
     build: { context: .., dockerfile: services/api-service/Dockerfile }
-    ports: ["${API_HOST_PORT:-8080}:8080"]
+    ports: ["8080:8080"]
     depends_on:
       redis: { condition: service_healthy }
 
   notification-service:
     <<: *service-base
     build: { context: .., dockerfile: services/notification-service/Dockerfile }
-    ports: ["${NOTIFICATION_HOST_PORT:-8085}:8080"]
+    ports: ["8085:8080"]
     depends_on:
       redis: { condition: service_healthy }
 
   fx-rate-service:
     <<: *service-base
     build: { context: .., dockerfile: services/fx-rate-service/Dockerfile }
-    ports: ["${FX_RATE_HOST_PORT:-8086}:8080"]
+    ports: ["8086:8080"]
     depends_on:
       redis: { condition: service_healthy }
