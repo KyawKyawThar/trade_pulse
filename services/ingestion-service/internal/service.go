@@ -39,14 +39,3 @@ func (s *Service) Run(ctx context.Context) error {
 	s.log.Info().Msg("ingestion-service stopping")
 	return err
 }
-
-// runSymbol is the per-symbol worker loop. It is a placeholder until
-// worker.go (Sprint 1 task 2) replaces the body with a real Binance
-// WebSocket connection; for now it just blocks until ctx is cancelled.
-func (s *Service) runSymbol(ctx context.Context, symbol string) error {
-	log := s.log.With().Str("symbol", symbol).Logger()
-	log.Info().Msg("worker started")
-	<-ctx.Done()
-	log.Info().Msg("worker stopping")
-	return nil
-}

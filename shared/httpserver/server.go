@@ -49,7 +49,8 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		s.log.Info().Str("addr", s.srv.Addr).Msg("ops http server listening")
 
-		if err := s.srv.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
+		err := s.srv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
 		}
@@ -68,7 +69,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
-type handelResponse struct {
+type healthResponse struct {
 	Status  string            `json:"status"` // "ok" | "degraded"
 	Service string            `json:"service,omitempty"`
 	Build   version.Info      `json:"build"`
@@ -80,7 +81,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	defer cancel()
 
-	resp := handelResponse{
+	resp := healthResponse{
 		Status: "ok",
 		Build:  version.GetInfo(),
 		Checks: map[string]string{},

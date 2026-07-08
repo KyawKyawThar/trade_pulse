@@ -2,6 +2,11 @@
 
 > A high-throughput, event-driven microservices pipeline built in Go.  
 > Demonstrates advanced Go concurrency, distributed systems, and real-time streaming at scale.
+>
+> **Pattern:** event-driven, broker-decoupled microservices via choreography — each service reacts
+> to events on Kafka/RabbitMQ rather than being directed by a central orchestrator. Not an API
+> gateway (no service fronts or routes to the others) and not Saga (no multi-step distributed
+> transaction with compensating rollbacks — this is a one-way data pipeline).
 
 ---
 
@@ -448,7 +453,10 @@ fx-rate-service    →  External FX API       HTTPS poll     fetch fiat rates ev
 fx-rate-service    →  Redis fx:rates        Redis SET      cache rates (TTL 5m)
 ```
 
-No direct HTTP calls between services — all communication is via message brokers or shared storage. This means:
+No direct HTTP calls between services — all communication is via message brokers or shared storage.
+This is choreography, not orchestration: there is no central coordinator telling services what to
+do next: each service subscribes to the events/state it cares about and decides its own next step.
+This means:
 
 ```
 ✓ Services are fully decoupled
