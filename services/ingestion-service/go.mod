@@ -3,6 +3,7 @@ module trade_pulse/services/ingestion-service
 go 1.26.1
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/rs/zerolog v1.35.1
 	golang.org/x/sync v0.21.0
 	trade_pulse/shared v0.0.0

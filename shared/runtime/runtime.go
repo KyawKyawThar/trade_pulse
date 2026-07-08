@@ -23,15 +23,19 @@ func SignalContext() (context.Context, context.CancelFunc) {
 
 func Run(ctx context.Context, log zerolog.Logger, components ...Component) error {
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 
 	for _, c := range components {
 		c := c
-		g.Go(func() error { return c(ctx) })
+		g.Go(func() error { return c(gctx) })
 	}
 
 	err := g.Wait()
 
+	// ctx (not gctx) tells us whether the outer caller asked for shutdown
+	// (SIGINT/SIGTERM). gctx is always cancelled by the time we get here
+	// whenever any component returned an error, so checking it would mask
+	// every real failure as a clean shutdown.
 	if err != nil && ctx.Err() == nil {
 		log.Error().Err(err).Msg("component failed; shutting down")
 

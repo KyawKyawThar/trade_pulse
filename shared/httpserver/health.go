@@ -41,7 +41,7 @@ func (r *healthRegistry) add(c Checker) {
 
 func (r *healthRegistry) snapshot() []Checker {
 	r.mu.RLock()
-	defer r.mu.Unlock()
+	defer r.mu.RUnlock()
 	out := make([]Checker, len(r.checkers))
 	copy(out, r.checkers)
 	return out
