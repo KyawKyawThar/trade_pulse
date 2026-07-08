@@ -132,6 +132,17 @@ tidy-all:
 		( cd $$m && go mod tidy ) || exit 1; \
 	done
 
+# Mirrors the CI "go mod tidy is clean" step: tidy with GOWORK=off (workspace
+# mode hides missing/misclassified requires that a hermetic module build or
+# docker build would fail on) and fail if that changes go.mod/go.sum.
+.PHONY: tidy-check
+tidy-check:
+	@for m in $(MODULES); do \
+		echo ">> $$m"; \
+		( cd $$m && GOWORK=off go mod tidy && git diff --exit-code -- go.mod go.sum ) \
+			|| { echo "$$m: go.mod/go.sum not tidy — run 'make tidy s=<service>' (or 'make tidy-all') and commit"; exit 1; }; \
+	done
+
 .PHONY: clean
 clean:
 	rm -rf $(SERVICES_DIR)/*/tmp
@@ -183,7 +194,7 @@ test:
 	done
 
 .PHONY: ci
-ci: fmt-check vet lint test build-all
+ci: fmt-check tidy-check vet lint test build-all
 
 # ============================================================================
 # Docker
