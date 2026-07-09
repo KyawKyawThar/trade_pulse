@@ -34,7 +34,7 @@ const (
 // cancelled or the connection drops, and returns. A dropped connection is
 // returned as a plain error for now; Sprint 1 task 5 (reconnect.go) will
 // wrap this call with backoff instead of letting it stop the errgroup.
-func (s *Service) runSymbol(ctx context.Context, symbol string) error {
+func (s *Service) runSymbol(ctx context.Context, symbol string, pub *Publisher) error {
 
 	log := s.log.With().Str("symbol", symbol).Logger()
 
@@ -102,8 +102,11 @@ func (s *Service) runSymbol(ctx context.Context, symbol string) error {
 			continue
 		}
 
-		// TODO(Sprint 1 #4): hand event to publisher.go (trades.raw) instead
-		// of logging it once that file exists.
+		if err := pub.Publish(event); err != nil {
+			log.Error().Err(err).Interface("trade", event).Msg("publish trade event")
+			continue
+		}
+
 		log.Debug().Interface("event", event).Msg("trade received")
 	}
 }

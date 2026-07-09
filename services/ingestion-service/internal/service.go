@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"trade_pulse/shared/config"
 
 	"github.com/rs/zerolog"
@@ -27,15 +28,23 @@ func (s *Service) Run(ctx context.Context) error {
 
 	s.log.Info().Strs("symbols", symbols).Msg("ingestion-service starting workers")
 
+	pub, err := NewPublisher(s.cfg.Kafka, s.log)
+
+	if err != nil {
+		return fmt.Errorf("kafka publisher: %w", err)
+	}
+
+	defer pub.Close()
+
 	g, ctx := errgroup.WithContext(ctx)
 
 	for _, symbol := range symbols {
 		g.Go(func() error {
-			return s.runSymbol(ctx, symbol)
+			return s.runSymbol(ctx, symbol, pub)
 		})
 	}
 
-	err := g.Wait()
+	err = g.Wait()
 	s.log.Info().Msg("ingestion-service stopping")
 	return err
 }
