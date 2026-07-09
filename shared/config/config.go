@@ -71,7 +71,7 @@ func Load(serviceName string) (Config, error) {
 	v.SetDefault("env", "dev")
 	v.SetDefault("log_level", "info")
 	v.SetDefault("http_addr", ":8080")
-	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
+	v.SetDefault("kafka.brokers", []string{"localhost:9093"})
 	v.SetDefault("redis.addr", "localhost:6379")
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("rabbitmq.url", "amqp://guest:guest@localhost:5672/")

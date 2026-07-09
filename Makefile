@@ -6,6 +6,17 @@ SERVICES_DIR := services
 BIN_DIR := bin
 COMPOSE := docker compose -f developments/docker-compose.yml
 
+# Redpanda broker (Kafka-API compatible). The service is named "kafka" in
+# compose; rpk is the CLI baked into the redpanda image.
+KAFKA_SVC := kafka
+RPK := $(COMPOSE) exec $(KAFKA_SVC) rpk
+CONSOLE_URL := http://localhost:8084
+
+# The wire-contract topics from shared/domain/broker.go. Partitioned so trades
+# for a symbol keep order on one partition; RF=1 for single-broker dev.
+KAFKA_TOPICS := trades.raw orderbook.raw candles
+KAFKA_PARTITIONS ?= 3
+
 # ---------------------------------------------------------------------------
 # Discover services automatically
 # ---------------------------------------------------------------------------
@@ -64,6 +75,16 @@ help:
 	@echo "  make logs"
 	@echo "  make docker-build"
 	@echo ""
+	@echo "Kafka (Redpanda)"
+	@echo "  make kafka-health"
+	@echo "  make kafka-init"
+	@echo "  make kafka-topics"
+	@echo "  make topic-create t=<topic>"
+	@echo "  make topic-delete t=<topic>"
+	@echo "  make topic-describe t=<topic>"
+	@echo "  make consume t=<topic>"
+	@echo "  make console"
+	@echo ""
 	@echo "Available services:"
 	@echo "  $(SERVICES)"
 
@@ -121,15 +142,19 @@ build-all:
 		cd ../..; \
 	done
 
+# Tidy with GOWORK=off so what you run locally matches the hermetic module
+# build CI does (and tidy-check verifies). Workspace-mode tidy omits transitive
+# go.sum hashes that a per-module/docker build needs, so plain `go mod tidy`
+# would leave go.sum "not tidy" from CI's point of view.
 .PHONY: tidy
 tidy: guard-s
-	cd $(SERVICES_DIR)/$(s) && go mod tidy
+	cd $(SERVICES_DIR)/$(s) && GOWORK=off go mod tidy
 
 .PHONY: tidy-all
 tidy-all:
 	@for m in $(MODULES); do \
 		echo ">> $$m"; \
-		( cd $$m && go mod tidy ) || exit 1; \
+		( cd $$m && GOWORK=off go mod tidy ) || exit 1; \
 	done
 
 # Mirrors the CI "go mod tidy is clean" step: tidy with GOWORK=off (workspace
@@ -228,3 +253,49 @@ down:
 .PHONY: logs
 logs:
 	$(COMPOSE) logs -f --tail=100
+
+# ============================================================================
+# Kafka (Redpanda / rpk)
+# ============================================================================
+
+.PHONY: guard-t
+guard-t:
+	@if [ -z "$(t)" ]; then \
+		echo "Usage: make <target> t=<topic>"; \
+		exit 1; \
+	fi
+
+.PHONY: kafka-health
+kafka-health:
+	$(RPK) cluster health
+
+.PHONY: kafka-topics
+kafka-topics:
+	$(RPK) topic list
+
+# Create the project's wire-contract topics (auto-create is disabled in compose).
+# Idempotent: rpk skips topics that already exist.
+.PHONY: kafka-init
+kafka-init:
+	$(RPK) topic create $(KAFKA_TOPICS) -p $(KAFKA_PARTITIONS)
+
+.PHONY: topic-create
+topic-create: guard-t
+	$(RPK) topic create $(t) -p $(KAFKA_PARTITIONS)
+
+.PHONY: topic-delete
+topic-delete: guard-t
+	$(RPK) topic delete $(t)
+
+.PHONY: topic-describe
+topic-describe: guard-t
+	$(RPK) topic describe $(t)
+
+.PHONY: consume
+consume: guard-t
+	$(RPK) topic consume $(t)
+
+.PHONY: console
+console:
+	@echo "Redpanda Console: $(CONSOLE_URL)"
+	@command -v open >/dev/null 2>&1 && open $(CONSOLE_URL) || true

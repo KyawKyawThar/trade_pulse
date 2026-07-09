@@ -130,7 +130,7 @@ All config is 12-factor: env vars (prefix `TRADEPULSE_`) override an optional
 TRADEPULSE_ENV=prod              # prod => JSON logs; dev => console logs
 TRADEPULSE_LOG_LEVEL=debug
 TRADEPULSE_HTTP_ADDR=:8080
-TRADEPULSE_KAFKA_BROKERS=kafka:29092
+TRADEPULSE_KAFKA_BROKERS=kafka:29093
 TRADEPULSE_REDIS_ADDR=redis:6379
 TRADEPULSE_FX_PROVIDER=exchangerate.host
 ```
