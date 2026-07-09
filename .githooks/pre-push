@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Pre-push gate: run the same checks CI does, before code leaves your machine.
+# Mirrors the GitHub pipeline (fmt-check, tidy-check, vet, lint, test, build-all)
+# so a red build is caught locally instead of on the PR. Skip in emergencies
+# with `git push --no-verify`.
+set -euo pipefail
+
+echo "==> pre-push: running 'make ci' (skip with --no-verify)"
+make ci
+echo "==> pre-push: all checks passed"

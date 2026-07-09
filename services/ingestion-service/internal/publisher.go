@@ -93,7 +93,7 @@ func (p *Publisher) Publish(event domain.TradeEvent) error {
 	}
 
 	topic := domain.TopicTradesRaw
-	err = p.producer.Produce(&kafka.Message{
+	if err = p.producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
 			Partition: kafka.PartitionAny,
@@ -101,7 +101,9 @@ func (p *Publisher) Publish(event domain.TradeEvent) error {
 		Key:       []byte(event.Symbol),
 		Value:     payload,
 		Timestamp: event.EventTime,
-	}, nil)
+	}, nil); err != nil {
+		return fmt.Errorf("produce trade event: %w", err)
+	}
 
 	return nil
 }

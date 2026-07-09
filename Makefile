@@ -53,6 +53,7 @@ help:
 	@echo ""
 	@echo "Development"
 	@echo "  make sync"
+	@echo "  make hooks"
 	@echo "  make dev s=<service>"
 	@echo "  make run s=<service>"
 	@echo "  make build s=<service>"
@@ -108,6 +109,13 @@ guard-s:
 sync:
 	go work use -r .
 	@echo "Workspace synced."
+
+# Point git at the versioned .githooks dir so `git push` runs `make ci` first.
+# Each dev runs this once after cloning (core.hooksPath isn't set by clone).
+.PHONY: hooks
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks installed (.githooks). Pre-push now runs 'make ci'."
 
 # ============================================================================
 # Development
