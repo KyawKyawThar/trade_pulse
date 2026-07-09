@@ -95,9 +95,16 @@ func (s *Service) runSymbol(ctx context.Context, symbol string) error {
 			return fmt.Errorf("read %s: %w", symbol, err)
 		}
 
-		// TODO(Sprint 1 #3/#4): hand raw to normalizer.go -> publisher.go
-		// instead of logging it once those files exist.
-		log.Debug().RawJSON("raw", raw).Msg("trade received")
+		event, err := normalizeTrade(raw)
+
+		if err != nil {
+			log.Warn().Err(err).RawJSON("raw", raw).Msg("dropping malformed trade message")
+			continue
+		}
+
+		// TODO(Sprint 1 #4): hand event to publisher.go (trades.raw) instead
+		// of logging it once that file exists.
+		log.Debug().Interface("event", event).Msg("trade received")
 	}
 }
 
