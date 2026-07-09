@@ -5,14 +5,20 @@ go 1.26.1
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/rs/zerolog v1.35.1
+	github.com/twmb/franz-go v1.21.5
 	golang.org/x/sync v0.21.0
 	trade_pulse/shared v0.0.0
 )
 
 require (
+	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/pierrec/lz4/v4 v4.1.26 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
+)
+
+require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/confluentinc/confluent-kafka-go v1.9.2
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
