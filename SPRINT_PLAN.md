@@ -65,7 +65,7 @@ SIGTERM), with version/commit build metadata injected via ldflags.
 |---|---|---|---|
 | 1 | `service.go`: start one goroutine per symbol (BTC, ETH, SOL) via `errgroup` + context cancellation (§ *Pattern 1*) | 5h | ✅ DONE |
 | 2 | `worker.go`: manage one Binance WebSocket connection per symbol (`wss://stream.binance.com:9443/ws/<sym>@trade`) | 6h | ✅ DONE |
-| 3 | `normalizer.go`: Binance JSON → `shared/domain.TradeEvent` with validation (§ *Data Flow* step 2) | 4h | TODO |
+| 3 | `normalizer.go`: Binance JSON → `shared/domain.TradeEvent` with validation (§ *Data Flow* step 2) | 4h | ✅ DONE |
 | 4 | `publisher.go`: Kafka producer (confluent-kafka-go), batch + compression, **partition by symbol** → `trades.raw` (§ *Service 1*) | 6h | TODO |
 | 5 | `reconnect.go`: exponential backoff on WS disconnect — baked in now, not Sprint 6 (§ Phase 4) | 4h | TODO |
 | 6 | `GET /health`: WS connection state + Kafka producer health | 2h | TODO |
