@@ -6,7 +6,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/rs/zerolog v1.35.1
 	github.com/twmb/franz-go v1.21.5
-	golang.org/x/sync v0.21.0
+	golang.org/x/sync v0.22.0
 	trade_pulse/shared v0.0.0
 )
 
