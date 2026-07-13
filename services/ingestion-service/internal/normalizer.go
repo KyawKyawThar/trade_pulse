@@ -31,32 +31,27 @@ type binanceTradeMessage struct {
 // normalizeTrade parses and validates one raw Binance @trade message into a
 // domain.TradeEvent. It rejects messages that aren't trade events or have
 // non-positive price/quantity, since those can't have come from a real fill.
-
-func normalizeTrade(raw []byte) (domain.TradeEvent, error) {
-
+// ingestTime is injected (not read from the clock here) so the function stays
+// pure and its output is fully assertable in tests.
+func normalizeTrade(raw []byte, ingestTime time.Time) (domain.TradeEvent, error) {
 	var msg binanceTradeMessage
-
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		return domain.TradeEvent{}, fmt.Errorf("unmarshal trade message: %w", err)
 	}
 
 	if msg.EventType != "trade" {
 		return domain.TradeEvent{}, fmt.Errorf("unexpected event type %q", msg.EventType)
-
 	}
-
 	if msg.Symbol == "" {
 		return domain.TradeEvent{}, fmt.Errorf("missing symbol")
 	}
 
 	price, err := strconv.ParseFloat(msg.Price, 64)
-
 	if err != nil || price <= 0 {
 		return domain.TradeEvent{}, fmt.Errorf("invalid price %q", msg.Price)
 	}
 
 	quantity, err := strconv.ParseFloat(msg.Quantity, 64)
-
 	if err != nil || quantity <= 0 {
 		return domain.TradeEvent{}, fmt.Errorf("invalid quantity %q", msg.Quantity)
 	}
@@ -66,7 +61,6 @@ func normalizeTrade(raw []byte) (domain.TradeEvent, error) {
 	}
 
 	side := domain.SideBuy
-
 	if msg.BuyerIsMaker {
 		side = domain.SideSell
 	}
@@ -78,6 +72,6 @@ func normalizeTrade(raw []byte) (domain.TradeEvent, error) {
 		Side:       side,
 		TradeID:    msg.TradeID,
 		EventTime:  time.UnixMilli(msg.TradeTime).UTC(),
-		IngestTime: time.Now().UTC(),
+		IngestTime: ingestTime,
 	}, nil
 }

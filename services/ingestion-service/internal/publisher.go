@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 	"trade_pulse/shared/config"
 	"trade_pulse/shared/domain"
@@ -20,6 +22,20 @@ const flushTimeout = 5 * time.Second
 type Publisher struct {
 	client *kgo.Client
 	log    zerolog.Logger
+
+	// consecutiveFailures counts deliveries that failed after the client
+	// exhausted its retries, since the last successful delivery. Check reads
+	// it so /health reflects actual delivery outcomes — Ping alone only
+	// proves the broker is reachable, not that trades are landing. Atomic
+	// because onDelivery runs on franz-go's callback goroutines at up to the
+	// 50k msg/sec ingestion rate.
+	consecutiveFailures atomic.Int64
+
+	// mu guards the last-failure detail below; taken only on the failure
+	// path, never per successful delivery.
+	mu            sync.Mutex
+	lastFailure   error
+	lastFailureAt time.Time
 }
 
 func NewPublisher(cfg config.KafkaConfig, log zerolog.Logger) (*Publisher, error) {
@@ -76,15 +92,56 @@ func (p *Publisher) Publish(event domain.TradeEvent) error {
 }
 
 // onDelivery logs any record that failed delivery after the client exhausted
-// its retries. Successful deliveries are not logged — at 50k msg/sec that
-// would dominate the log stream for no benefit.
+// its retries and feeds the delivery-state counters that Check reports.
+// Successful deliveries are not logged — at 50k msg/sec that would dominate
+// the log stream for no benefit — they only reset the failure streak.
 func (p *Publisher) onDelivery(rec *kgo.Record, err error) {
-	if err != nil {
-		p.log.Error().Err(err).
-			Str("topic", rec.Topic).
-			Int32("partition", rec.Partition).
-			Str("symbol", string(rec.Key)).Msg("kafka delivery failed")
+	if err == nil {
+		p.consecutiveFailures.Store(0)
+		return
 	}
+
+	p.consecutiveFailures.Add(1)
+
+	p.mu.Lock()
+	p.lastFailure = err
+	p.lastFailureAt = time.Now()
+	p.mu.Unlock()
+
+	p.log.Error().Err(err).
+		Str("topic", rec.Topic).
+		Int32("partition", rec.Partition).
+		Str("symbol", string(rec.Key)).Msg("kafka delivery failed")
+}
+
+// Name identifies this checker in the /health response.
+func (p *Publisher) Name() string { return "kafka_producer" }
+
+// Check reports producer health on two axes: the broker cluster is reachable
+// (Ping issues a broker-only metadata request, bounded by ctx's deadline) and
+// deliveries are actually landing (no unbroken streak of exhausted-retry
+// failures since the last success).
+func (p *Publisher) Check(ctx context.Context) error {
+	if err := p.client.Ping(ctx); err != nil {
+		return fmt.Errorf("kafka ping: %w", err)
+	}
+	return p.deliveryStatus()
+}
+
+// deliveryStatus returns an error while the most recent delivery outcome is
+// an unbroken failure streak; one successful delivery clears it.
+func (p *Publisher) deliveryStatus() error {
+	n := p.consecutiveFailures.Load()
+	if n == 0 {
+		return nil
+	}
+
+	p.mu.Lock()
+	lastErr, lastAt := p.lastFailure, p.lastFailureAt
+	p.mu.Unlock()
+
+	return fmt.Errorf("last %d deliveries failed, most recent %s ago: %w",
+		n, time.Since(lastAt).Round(time.Second), lastErr)
 }
 
 // Close flushes buffered messages within flushTimeout and releases the

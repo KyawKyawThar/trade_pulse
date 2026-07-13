@@ -22,6 +22,13 @@ type Config struct {
 	RabbitMQ   RabbitMQConfig   `mapstructure:"rabbitmq"`
 	ClickHouse ClickHouseConfig `mapstructure:"clickhouse"`
 	FX         FXConfig         `mapstructure:"fx"`
+	Ingestion  IngestionConfig  `mapstructure:"ingestion"`
+}
+
+// IngestionConfig tunes ingestion-service: the set of symbols to stream from
+// the exchange. Config-driven so the symbol set changes without a rebuild.
+type IngestionConfig struct {
+	Symbols []string `mapstructure:"symbols"`
 }
 
 // KafkaConfig is the event-streaming backbone connection.
@@ -83,6 +90,7 @@ func Load(serviceName string) (Config, error) {
 	v.SetDefault("fx.cache_ttl", 5*time.Minute)
 	v.SetDefault("fx.breaker_max_fail", 5)
 	v.SetDefault("fx.breaker_cooldown", 30*time.Second)
+	v.SetDefault("ingestion.symbols", []string{"btcusdt", "ethusdt", "solusdt"})
 
 	// Environment: TRADEPULSE_REDIS_ADDR -> redis.addr, etc.
 	v.SetEnvPrefix("TRADEPULSE")

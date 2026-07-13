@@ -14,16 +14,20 @@ type Checker interface {
 	Check(ctx context.Context) error
 }
 
-type CheckerFunc struct {
-	CheckerName string
-	fn          func(ctx context.Context) error
+// CheckerFunc adapts a plain (name, func) pair into a Checker, mirroring the
+// http.HandlerFunc idiom so callers in other packages don't need their own
+// Checker type for a one-off probe (e.g. a Kafka producer or Redis ping).
+func CheckerFunc(name string, fn func(ctx context.Context) error) Checker {
+	return namedChecker{name: name, fn: fn}
 }
 
-func (c CheckerFunc) Name() string { return c.CheckerName }
-
-func (c CheckerFunc) Check(ctx context.Context) error {
-	return c.fn(ctx)
+type namedChecker struct {
+	name string
+	fn   func(ctx context.Context) error
 }
+
+func (c namedChecker) Name() string                    { return c.name }
+func (c namedChecker) Check(ctx context.Context) error { return c.fn(ctx) }
 
 // healthRegistry holds the registered checkers. It is safe for concurrent
 // registration (services may register from goroutines as components come up).
