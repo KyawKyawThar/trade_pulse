@@ -28,6 +28,7 @@ func New(addr string, log zerolog.Logger) *Server {
 	}
 
 	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/health/live", s.handleLive)
 	s.mux.Handle("/metrics", promhttp.Handler())
 
 	s.srv = &http.Server{
@@ -76,6 +77,25 @@ type healthResponse struct {
 	Checks  map[string]string `json:"checks"`
 }
 
+// handleLive is the liveness probe: it answers 200 whenever the process is up
+// and serving HTTP, with no dependency checks. Point orchestrator liveness
+// probes (e.g. Kubernetes livenessProbe) here — a restart only helps when the
+// process itself is wedged. Dependency trouble (broker down, WS reconnecting
+// with backoff) belongs to /health; restarting the pod for it would throw away
+// the reconnect/backoff state and hammer the upstream instead of helping.
+func (s *Server) handleLive(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(struct {
+		Status string       `json:"status"`
+		Build  version.Info `json:"build"`
+	}{Status: "ok", Build: version.GetInfo()})
+}
+
+// handleHealth is the readiness/dependency report: it runs every registered
+// checker and returns 503 with per-check detail if any dependency is unhealthy.
+// Use it for readiness probes and monitoring — never for liveness (see
+// handleLive).
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 

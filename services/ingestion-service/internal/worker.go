@@ -4,9 +4,19 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"trade_pulse/shared/domain"
 
 	"github.com/gorilla/websocket"
 )
+
+// tradePublisher is what the worker loop needs from a publisher: fire one
+// normalized trade downstream. Defined here on the consumer side (accept
+// interfaces, return structs) so tests can drive the read → normalize →
+// publish loop with a fake instead of a live Kafka client; *Publisher is the
+// production implementation.
+type tradePublisher interface {
+	Publish(event domain.TradeEvent) error
+}
 
 const (
 	binanceWSBaseURL = "wss://stream.binance.com:9443/ws"
@@ -21,20 +31,18 @@ const (
 
 	wsPongWait = 60 * time.Second
 
-	// wsReadLimit caps a single frame; a @trade message is well under 1KB,
-	// this just guards against a misbehaving server.
-	// this just guards against a misbehaving server.
-	// KB = 1 << 10 // 1,024, MB = 1 << 20 // 1,048,576,
-	// GB = 1 << 30 // 1,073,741,824
+	// wsReadLimit caps a single frame at 1MiB; a @trade message is well under
+	// 1KB, so this just guards against a misbehaving server.
 	wsReadLimit = 1 << 20
 )
 
-// runSymbol is the per-symbol worker loop: it opens one Binance WebSocket
-// connection for symbol's trade stream, reads messages until ctx is
-// cancelled or the connection drops, and returns. A dropped connection is
-// returned as a plain error for now; Sprint 1 task 5 (reconnect.go) will
-// wrap this call with backoff instead of letting it stop the errgroup.
-func (s *Service) runSymbol(ctx context.Context, symbol string, pub *Publisher) error {
+// runSymbol manages a single Binance WebSocket connection for symbol's trade
+// stream: it dials, reads messages until ctx is cancelled or the connection
+// drops, and returns. A dropped connection is returned as an error and a
+// clean ctx-cancelled shutdown returns nil; reconnect.go's
+// runSymbolWithReconnect wraps this call, backing off and redialing on the
+// error case instead of letting it stop the errgroup.
+func (s *Service) runSymbol(ctx context.Context, symbol string, pub tradePublisher) error {
 
 	log := s.log.With().Str("symbol", symbol).Logger()
 
@@ -45,8 +53,10 @@ func (s *Service) runSymbol(ctx context.Context, symbol string, pub *Publisher) 
 	}
 
 	log.Info().Msg("worker connected")
+	s.ws.setConnected(symbol, true)
 
 	defer func() {
+		s.ws.setConnected(symbol, false)
 		_ = conn.Close()
 		log.Info().Msg("worker stopped")
 
@@ -86,7 +96,6 @@ func (s *Service) runSymbol(ctx context.Context, symbol string, pub *Publisher) 
 	})
 
 	for {
-
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			if ctx.Err() != nil {
@@ -95,8 +104,7 @@ func (s *Service) runSymbol(ctx context.Context, symbol string, pub *Publisher) 
 			return fmt.Errorf("read %s: %w", symbol, err)
 		}
 
-		event, err := normalizeTrade(raw)
-
+		event, err := normalizeTrade(raw, time.Now().UTC())
 		if err != nil {
 			log.Warn().Err(err).RawJSON("raw", raw).Msg("dropping malformed trade message")
 			continue
@@ -112,12 +120,15 @@ func (s *Service) runSymbol(ctx context.Context, symbol string, pub *Publisher) 
 }
 
 func dialBinanceTrade(ctx context.Context, symbol string) (*websocket.Conn, error) {
-
 	dialer := websocket.Dialer{HandshakeTimeout: wsHandshakeTimeout}
 
 	conn, resp, err := dialer.DialContext(ctx, binanceWSBaseURL+"/"+symbol+"@trade", nil)
-
 	if err != nil {
+		// On a handshake failure gorilla still returns a non-nil resp whose
+		// body holds the server's error; close it so it doesn't leak.
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		return nil, err
 	}
 

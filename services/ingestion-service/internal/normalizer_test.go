@@ -2,15 +2,17 @@ package internal
 
 import (
 	"testing"
+	"time"
 	"trade_pulse/shared/domain"
 )
 
 func TestNormalizeTrade(t *testing.T) {
+	ingestTime := time.Unix(1719158401, 0).UTC()
 
 	t.Run("valid buy", func(t *testing.T) {
 		raw := []byte(`{"e":"trade","E":123456789,"s":"BTCUSDT","t":12345,"p":"65000.50","q":"0.5","b":88,"a":50,"T":1719158400000,"m":false,"M":true}`)
 
-		got, err := normalizeTrade(raw)
+		got, err := normalizeTrade(raw, ingestTime)
 
 		if err != nil {
 			t.Fatalf("normalizeTrade() error = %v", err)
@@ -35,16 +37,15 @@ func TestNormalizeTrade(t *testing.T) {
 		if got.EventTime.UnixMilli() != 1719158400000 {
 			t.Errorf("EventTime = %v, want unix ms 1719158400000", got.EventTime)
 		}
-		if got.IngestTime.IsZero() {
-			t.Error("IngestTime should be set")
+		if !got.IngestTime.Equal(ingestTime) {
+			t.Errorf("IngestTime = %v, want %v", got.IngestTime, ingestTime)
 		}
-
 	})
 
 	t.Run("buyer is maker means sell", func(t *testing.T) {
 		raw := []byte(`{"e":"trade","s":"BTCUSDT","t":1,"p":"1","q":"1","T":1,"m":true}`)
 
-		got, err := normalizeTrade(raw)
+		got, err := normalizeTrade(raw, ingestTime)
 
 		if err != nil {
 			t.Fatalf("normalizeTrade() error = %v", err)
@@ -70,7 +71,7 @@ func TestNormalizeTrade(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := normalizeTrade([]byte(tt.raw)); err == nil {
+			if _, err := normalizeTrade([]byte(tt.raw), ingestTime); err == nil {
 				t.Errorf("normalizeTrade(%s) expected error, got nil", tt.raw)
 			}
 		})

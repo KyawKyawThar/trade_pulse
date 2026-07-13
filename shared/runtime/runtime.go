@@ -26,7 +26,6 @@ func Run(ctx context.Context, log zerolog.Logger, components ...Component) error
 	g, gctx := errgroup.WithContext(ctx)
 
 	for _, c := range components {
-		c := c
 		g.Go(func() error { return c(gctx) })
 	}
 

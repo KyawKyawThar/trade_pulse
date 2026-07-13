@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"trade_pulse/services/analytics-service/internal"
 	"trade_pulse/shared/config"
@@ -17,7 +18,7 @@ func main() {
 	cfg, err := config.Load(serviceName)
 
 	if err != nil {
-		println("config load failed:", err.Error())
+		fmt.Fprintln(os.Stderr, "config load failed:", err)
 		os.Exit(1)
 	}
 

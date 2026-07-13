@@ -57,7 +57,7 @@ SIGTERM), with version/commit build metadata injected via ldflags.
 
 ---
 
-### Sprint 1 — ingestion-service: Binance → Kafka (Week 1) — TODO
+### Sprint 1 — ingestion-service: Binance → Kafka (Week 1) — CODE COMPLETE (deliverable verification pending)
 
 **Goal:** Live trades land on the Kafka backbone, reconnection-safe (§ *Service 1*, *Pattern 1*).
 
@@ -66,9 +66,28 @@ SIGTERM), with version/commit build metadata injected via ldflags.
 | 1 | `service.go`: start one goroutine per symbol (BTC, ETH, SOL) via `errgroup` + context cancellation (§ *Pattern 1*) | 5h | ✅ DONE |
 | 2 | `worker.go`: manage one Binance WebSocket connection per symbol (`wss://stream.binance.com:9443/ws/<sym>@trade`) | 6h | ✅ DONE |
 | 3 | `normalizer.go`: Binance JSON → `shared/domain.TradeEvent` with validation (§ *Data Flow* step 2) | 4h | ✅ DONE |
-| 4 | `publisher.go`: Kafka producer (confluent-kafka-go), batch + compression, **partition by symbol** → `trades.raw` (§ *Service 1*) | 6h | TODO |
-| 5 | `reconnect.go`: exponential backoff on WS disconnect — baked in now, not Sprint 6 (§ Phase 4) | 4h | TODO |
-| 6 | `GET /health`: WS connection state + Kafka producer health | 2h | TODO |
+| 4 | `publisher.go`: Kafka producer (franz-go, pure-Go — swapped from confluent-kafka-go to keep the `CGO_ENABLED=0`/distroless build), batch + compression, **partition by symbol** → `trades.raw` (§ *Service 1*) | 6h | ✅ DONE |
+| 5 | `reconnect.go`: exponential backoff on WS disconnect — baked in now, not Sprint 6 (§ Phase 4) | 4h | ✅ DONE |
+| 6 | `GET /health`: WS connection state + Kafka producer health | 2h | ✅ DONE |
+
+**Done so far:** all 6 tasks complete — per-symbol WS workers under `errgroup`,
+normalization with injected ingest time (pure/testable), franz-go producer
+(batch + lz4 + acks-all idempotent) keyed by symbol → `trades.raw`, jittered
+exponential backoff reconnect with uptime-based reset, and `/health` reporting
+per-symbol WS connection state (`websocket` checker) + broker reachability
+(`kafka_producer` checker: `client.Ping` for reachability **plus** a
+consecutive-delivery-failure streak, so /health reflects trades actually
+landing, not just a reachable broker). Symbols are config-driven
+(`ingestion.symbols`, default btc/eth/sol), normalized (lowercase/trim/dedupe)
+so a mixed-case env value can't silently subscribe to a dead stream. Shared
+httpserver now splits probes: `/health/live` = liveness (process up, no
+dependency checks — safe for a k8s livenessProbe), `/health` = readiness/
+dependency report (a symbol in reconnect backoff degrades it by design and
+must never trigger a restart). Worker loop publishes through a consumer-side
+`tradePublisher` interface, so it's testable without Kafka.
+**Remaining for the deliverable:** end-to-end verification — observe a Binance
+trade landing on `trades.raw` < 1s and a killed WS connection reconnecting
+with backoff without crashing the process.
 
 **Deliverable:** A trade observed on Binance is published to `trades.raw` within < 1s; killing the WS connection auto-reconnects with backoff and resumes without crashing the process.
 
@@ -223,6 +242,6 @@ The MVP closes with Sprint 6. The hardening below runs as a gated epic; re-estim
 1. **Binance WS rate limits / bans** — ingestion stalls. Backoff + one shared connection per symbol group; baked into Sprint 1, not deferred.
 2. **Kafka rebalance → duplicate whale alerts** (§ *Decision 4*) — the most likely correctness bug. Redis dedup is not optional; verify it under a forced rebalance.
 3. **Slow WebSocket client blocks the broadcaster** (§ *Decision 5*) — freezes *all* clients. Drop policy must work before trusting concurrent-client numbers.
-4. **confluent-kafka-go cgo build friction** — CI/build delays. Pin the client version and document build deps when the client lands in Sprint 1.
+4. **~~confluent-kafka-go cgo build friction~~ (RESOLVED, Sprint 1)** — this materialized as predicted: `confluent-kafka-go` is a cgo/librdkafka wrapper and broke the `CGO_ENABLED=0` build and the `distroless/static` image every service uses. Resolved by switching the producer to **franz-go** (pure Go) — no cgo, no build deps, keeps the static/distroless design. No longer a risk to watch.
 5. **External FX provider down / rate-limited** (§ *Service 6*) — must never block a `/convert` request or the tick path. fx-rate-service serves last-good rates under TTL with a circuit breaker; the api-service only ever reads Redis, never the provider. Verify the stale-serve path before trusting the endpoint.
 6. **Solo bus factor** — keep each sprint's slice independently demoable so progress is never blocked on a half-finished service.
