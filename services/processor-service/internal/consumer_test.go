@@ -7,88 +7,85 @@ import (
 	"testing"
 	"trade_pulse/shared/domain"
 
-	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/rs/zerolog"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// fakeStorer records StoreMessage calls so dispatch's commit decisions can be
-// asserted without a live Kafka client.
-type fakeStorer struct {
+// fakeMarker records MarkCommitRecords calls so dispatch's commit decisions
+// can be asserted without a live Kafka client.
+type fakeMarker struct {
 	calls int
-	err   error
 }
 
-func (f *fakeStorer) StoreMessage(m *kafka.Message) ([]kafka.TopicPartition, error) {
-	f.calls++
-	return nil, f.err
+func (f *fakeMarker) MarkCommitRecords(rs ...*kgo.Record) {
+	f.calls += len(rs)
 }
 
-// fakeKafkaConsumer implements kafkaConsumer so Run/Check/Close can be
-// exercised without a live broker. Poll replays events in order; once
-// exhausted it invokes afterAll (typically cancelling the test's context) so
-// Run's loop can terminate deterministically instead of spinning forever.
-type fakeKafkaConsumer struct {
-	fakeStorer
-
-	subscribeErr error
-
-	events         []kafka.Event
-	idx            int
-	afterAll       func()
-	calledAfterAll bool
-
-	metadataErr error
-	closeErr    error
-	closed      bool
-}
-
-func (f *fakeKafkaConsumer) Subscribe(topic string, cb kafka.RebalanceCb) error {
-	return f.subscribeErr
-}
-
-func (f *fakeKafkaConsumer) Poll(timeoutMs int) kafka.Event {
-	if f.idx < len(f.events) {
-		e := f.events[f.idx]
-		f.idx++
-		return e
-	}
-	if !f.calledAfterAll && f.afterAll != nil {
-		f.calledAfterAll = true
-		f.afterAll()
-	}
-	return nil
-}
-
-func (f *fakeKafkaConsumer) GetMetadata(topic *string, allTopics bool, timeoutMs int) (*kafka.Metadata, error) {
-	if f.metadataErr != nil {
-		return nil, f.metadataErr
-	}
-	return &kafka.Metadata{}, nil
-}
-
-func (f *fakeKafkaConsumer) Close() error {
-	f.closed = true
-	return f.closeErr
-}
-
-func tradeMessage(t *testing.T, event domain.TradeEvent) *kafka.Message {
+func tradeRecord(t *testing.T, event domain.TradeEvent) *kgo.Record {
 	t.Helper()
 	payload, err := json.Marshal(event)
 	if err != nil {
 		t.Fatalf("marshal trade event: %v", err)
 	}
-	return &kafka.Message{Key: []byte(event.Symbol), Value: payload}
+	return &kgo.Record{Topic: domain.TopicTradesRaw, Key: []byte(event.Symbol), Value: payload}
+}
+
+// recordFetch wraps a single record into the Fetches shape Run consumes,
+// mirroring what franz-go itself would hand back from PollFetches.
+func recordFetch(rec *kgo.Record) kgo.Fetches {
+	return kgo.Fetches{{Topics: []kgo.FetchTopic{{
+		Topic:      rec.Topic,
+		Partitions: []kgo.FetchPartition{{Records: []*kgo.Record{rec}}},
+	}}}}
+}
+
+// fakeKafkaConsumer implements kafkaConsumer so Run/Check/Close can be
+// exercised without a live broker. PollFetches replays fetches in order;
+// once exhausted it invokes afterAll (typically cancelling the test's
+// context) so Run's loop can terminate deterministically instead of
+// spinning forever.
+type fakeKafkaConsumer struct {
+	fakeMarker
+
+	fetches        []kgo.Fetches
+	idx            int
+	afterAll       func()
+	calledAfterAll bool
+
+	pingErr error
+	closed  bool
+}
+
+func (f *fakeKafkaConsumer) PollFetches(ctx context.Context) kgo.Fetches {
+	if f.idx < len(f.fetches) {
+		fs := f.fetches[f.idx]
+		f.idx++
+		return fs
+	}
+	if !f.calledAfterAll && f.afterAll != nil {
+		f.calledAfterAll = true
+		f.afterAll()
+	}
+	return kgo.Fetches{}
+}
+
+func (f *fakeKafkaConsumer) Ping(ctx context.Context) error {
+	return f.pingErr
+}
+
+func (f *fakeKafkaConsumer) Close() {
+	f.closed = true
 }
 
 func TestDispatch(t *testing.T) {
 	trade := domain.TradeEvent{Symbol: "BTCUSDT", Price: 65000, Quantity: 0.1, TradeID: 42}
 
-	t.Run("malformed payload stores offset without calling handler", func(t *testing.T) {
-		storer := &fakeStorer{}
-		msg := &kafka.Message{Key: []byte("btcusdt"), Value: []byte("not json")}
+	t.Run("malformed payload marks the record without calling handler", func(t *testing.T) {
+		marker := &fakeMarker{}
+		rec := &kgo.Record{Key: []byte("btcusdt"), Value: []byte("not json")}
 		handlerCalled := false
 
-		dispatch(context.Background(), storer, zerolog.Nop(), msg, func(context.Context, domain.TradeEvent) error {
+		dispatch(context.Background(), marker, zerolog.Nop(), rec, func(context.Context, domain.TradeEvent) error {
 			handlerCalled = true
 			return nil
 		})
@@ -96,108 +93,74 @@ func TestDispatch(t *testing.T) {
 		if handlerCalled {
 			t.Error("handler should not be called for a malformed payload")
 		}
-		if storer.calls != 1 {
-			t.Errorf("storeOffset calls = %d, want 1 (advance past a message that can never decode)", storer.calls)
+		if marker.calls != 1 {
+			t.Errorf("MarkCommitRecords calls = %d, want 1 (advance past a message that can never decode)", marker.calls)
 		}
 	})
 
-	t.Run("handler error leaves offset uncommitted for redelivery", func(t *testing.T) {
-		storer := &fakeStorer{}
-		msg := tradeMessage(t, trade)
+	t.Run("handler error leaves the record unmarked for redelivery", func(t *testing.T) {
+		marker := &fakeMarker{}
+		rec := tradeRecord(t, trade)
 
-		dispatch(context.Background(), storer, zerolog.Nop(), msg, func(context.Context, domain.TradeEvent) error {
+		dispatch(context.Background(), marker, zerolog.Nop(), rec, func(context.Context, domain.TradeEvent) error {
 			return errors.New("downstream unavailable")
 		})
 
-		if storer.calls != 0 {
-			t.Errorf("storeOffset calls = %d, want 0 (offset must stay uncommitted on handler failure)", storer.calls)
+		if marker.calls != 0 {
+			t.Errorf("MarkCommitRecords calls = %d, want 0 (record must stay unmarked on handler failure)", marker.calls)
 		}
 	})
 
-	t.Run("successful handling stores offset", func(t *testing.T) {
-		storer := &fakeStorer{}
-		msg := tradeMessage(t, trade)
+	t.Run("successful handling marks the record", func(t *testing.T) {
+		marker := &fakeMarker{}
+		rec := tradeRecord(t, trade)
 		var got domain.TradeEvent
 
-		dispatch(context.Background(), storer, zerolog.Nop(), msg, func(_ context.Context, event domain.TradeEvent) error {
+		dispatch(context.Background(), marker, zerolog.Nop(), rec, func(_ context.Context, event domain.TradeEvent) error {
 			got = event
 			return nil
 		})
 
-		if storer.calls != 1 {
-			t.Errorf("storeOffset calls = %d, want 1 after successful handling", storer.calls)
+		if marker.calls != 1 {
+			t.Errorf("MarkCommitRecords calls = %d, want 1 after successful handling", marker.calls)
 		}
 		if got != trade {
 			t.Errorf("handler received %+v, want %+v", got, trade)
 		}
 	})
-
-	t.Run("StoreMessage failure is swallowed, not propagated", func(t *testing.T) {
-		storer := &fakeStorer{err: errors.New("broker unreachable")}
-		msg := tradeMessage(t, trade)
-
-		dispatch(context.Background(), storer, zerolog.Nop(), msg, func(context.Context, domain.TradeEvent) error {
-			return nil
-		})
-
-		if storer.calls != 1 {
-			t.Errorf("storeOffset calls = %d, want 1 (StoreMessage was attempted)", storer.calls)
-		}
-	})
 }
 
 func TestConsumerRun(t *testing.T) {
-	t.Run("subscribe failure is returned without polling", func(t *testing.T) {
-		fake := &fakeKafkaConsumer{subscribeErr: errors.New("no brokers")}
-		c := &Consumer{consumer: fake, log: zerolog.Nop()}
-
-		err := c.Run(context.Background(), func(context.Context, domain.TradeEvent) error { return nil })
-
-		if err == nil {
-			t.Fatal("Run() = nil, want error when Subscribe fails")
-		}
-	})
-
 	t.Run("context cancellation stops the loop cleanly", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		fake := &fakeKafkaConsumer{}
-		c := &Consumer{consumer: fake, log: zerolog.Nop()}
+		c := &Consumer{client: fake, log: zerolog.Nop()}
 
 		if err := c.Run(ctx, func(context.Context, domain.TradeEvent) error { return nil }); err != nil {
 			t.Errorf("Run() = %v, want nil on a cancelled context", err)
 		}
 	})
 
-	t.Run("fatal broker error stops the loop and is returned", func(t *testing.T) {
-		fatal := kafka.NewError(kafka.ErrAllBrokersDown, "all brokers down", true)
-		fake := &fakeKafkaConsumer{events: []kafka.Event{fatal}}
-		c := &Consumer{consumer: fake, log: zerolog.Nop()}
-
-		err := c.Run(context.Background(), func(context.Context, domain.TradeEvent) error { return nil })
-
-		if err == nil {
-			t.Fatal("Run() = nil, want error on a fatal broker error")
-		}
-	})
-
-	t.Run("non-fatal broker error is logged and the loop continues", func(t *testing.T) {
+	t.Run("a fetch error is logged and the loop continues until cancelled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		transient := kafka.NewError(kafka.ErrTransport, "transient blip", false)
-		fake := &fakeKafkaConsumer{events: []kafka.Event{transient}, afterAll: cancel}
-		c := &Consumer{consumer: fake, log: zerolog.Nop()}
+		fake := &fakeKafkaConsumer{
+			fetches:  []kgo.Fetches{kgo.NewErrFetch(errors.New("transient blip"))},
+			afterAll: cancel,
+		}
+		c := &Consumer{client: fake, log: zerolog.Nop()}
 
 		if err := c.Run(ctx, func(context.Context, domain.TradeEvent) error { return nil }); err != nil {
-			t.Errorf("Run() = %v, want nil after a non-fatal error followed by cancellation", err)
+			t.Errorf("Run() = %v, want nil after a fetch error followed by cancellation", err)
 		}
 	})
 
-	t.Run("a message is dispatched to the handler and its offset stored", func(t *testing.T) {
+	t.Run("a record is dispatched to the handler and marked", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		trade := domain.TradeEvent{Symbol: "ETHUSDT", Price: 3000, Quantity: 2, TradeID: 7}
-		msg := tradeMessage(t, trade)
-		fake := &fakeKafkaConsumer{events: []kafka.Event{msg}, afterAll: cancel}
-		c := &Consumer{consumer: fake, log: zerolog.Nop()}
+		rec := tradeRecord(t, trade)
+		fake := &fakeKafkaConsumer{fetches: []kgo.Fetches{recordFetch(rec)}, afterAll: cancel}
+		c := &Consumer{client: fake, log: zerolog.Nop()}
 
 		var got domain.TradeEvent
 		err := c.Run(ctx, func(_ context.Context, event domain.TradeEvent) error {
@@ -212,25 +175,25 @@ func TestConsumerRun(t *testing.T) {
 			t.Errorf("handler received %+v, want %+v", got, trade)
 		}
 		if fake.calls != 1 {
-			t.Errorf("StoreMessage calls = %d, want 1", fake.calls)
+			t.Errorf("MarkCommitRecords calls = %d, want 1", fake.calls)
 		}
 	})
 }
 
 func TestConsumerCheck(t *testing.T) {
-	t.Run("metadata reachable reports healthy", func(t *testing.T) {
-		c := &Consumer{consumer: &fakeKafkaConsumer{}, log: zerolog.Nop()}
+	t.Run("broker reachable reports healthy", func(t *testing.T) {
+		c := &Consumer{client: &fakeKafkaConsumer{}, log: zerolog.Nop()}
 
 		if err := c.Check(context.Background()); err != nil {
 			t.Errorf("Check() = %v, want nil", err)
 		}
 	})
 
-	t.Run("metadata failure is reported", func(t *testing.T) {
-		c := &Consumer{consumer: &fakeKafkaConsumer{metadataErr: errors.New("broker unreachable")}, log: zerolog.Nop()}
+	t.Run("ping failure is reported", func(t *testing.T) {
+		c := &Consumer{client: &fakeKafkaConsumer{pingErr: errors.New("broker unreachable")}, log: zerolog.Nop()}
 
 		if err := c.Check(context.Background()); err == nil {
-			t.Error("Check() = nil, want error when GetMetadata fails")
+			t.Error("Check() = nil, want error when Ping fails")
 		}
 	})
 
@@ -239,7 +202,7 @@ func TestConsumerCheck(t *testing.T) {
 		defer cancel()
 		<-ctx.Done()
 
-		c := &Consumer{consumer: &fakeKafkaConsumer{}, log: zerolog.Nop()}
+		c := &Consumer{client: &fakeKafkaConsumer{}, log: zerolog.Nop()}
 
 		if err := c.Check(ctx); err == nil {
 			t.Error("Check() = nil, want error when the context has no time remaining")
@@ -248,12 +211,12 @@ func TestConsumerCheck(t *testing.T) {
 }
 
 func TestConsumerClose(t *testing.T) {
-	fake := &fakeKafkaConsumer{closeErr: errors.New("close failed")}
-	c := &Consumer{consumer: fake, log: zerolog.Nop()}
+	fake := &fakeKafkaConsumer{}
+	c := &Consumer{client: fake, log: zerolog.Nop()}
 
 	c.Close()
 
 	if !fake.closed {
-		t.Error("Close() did not call the underlying consumer's Close")
+		t.Error("Close() did not call the underlying client's Close")
 	}
 }
