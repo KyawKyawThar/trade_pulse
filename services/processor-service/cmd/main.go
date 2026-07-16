@@ -26,7 +26,7 @@ func main() {
 	log.Info().Str("env", cfg.Env).Str("http-addr", cfg.HTTPAddr).Msg("starting")
 
 	ops := httpserver.New(cfg.HTTPAddr, log)
-	svc := internal.New(cfg, log)
+	svc := internal.New(cfg, log, ops)
 
 	ctx, cancel := runtime.SignalContext()
 	defer cancel()

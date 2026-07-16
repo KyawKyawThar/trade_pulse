@@ -99,7 +99,7 @@ with backoff without crashing the process.
 
 | # | Task | Est | Status |
 |---|---|---|---|
-| 1 | `consumer.go`: Kafka consumer group on `trades.raw` (processor's own group) | 5h | TODO |
+| 1 | `consumer.go`: Kafka consumer group on `trades.raw` (processor's own group) | 5h | ✅ DONE |
 | 2 | `pool.go`: worker pool (configurable size, ~100) via `errgroup` (§ *Pattern 1*) | 5h | TODO |
 | 3 | `fanout.go`: fan-out one trade to N downstream channels (order-book updater, Redis writer, broadcaster) (§ *Pattern 2*) | 4h | TODO |
 | 4 | `enricher.go`: add notional (`price × qty`), market metadata (§ *Data Flow* step 4) | 3h | TODO |
