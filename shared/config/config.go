@@ -23,12 +23,17 @@ type Config struct {
 	ClickHouse ClickHouseConfig `mapstructure:"clickhouse"`
 	FX         FXConfig         `mapstructure:"fx"`
 	Ingestion  IngestionConfig  `mapstructure:"ingestion"`
+	Processor  ProcessorConfig  `mapstructure:"processor"`
 }
 
 // IngestionConfig tunes ingestion-service: the set of symbols to stream from
 // the exchange. Config-driven so the symbol set changes without a rebuild.
 type IngestionConfig struct {
 	Symbols []string `mapstructure:"symbols"`
+}
+
+type ProcessorConfig struct {
+	PoolSize int `mapstructure:"pool_size"`
 }
 
 // KafkaConfig is the event-streaming backbone connection.
@@ -91,6 +96,7 @@ func Load(serviceName string) (Config, error) {
 	v.SetDefault("fx.breaker_max_fail", 5)
 	v.SetDefault("fx.breaker_cooldown", 30*time.Second)
 	v.SetDefault("ingestion.symbols", []string{"btcusdt", "ethusdt", "solusdt"})
+	v.SetDefault("processor.pool_size", 100)
 
 	// Environment: TRADEPULSE_REDIS_ADDR -> redis.addr, etc.
 	v.SetEnvPrefix("TRADEPULSE")
