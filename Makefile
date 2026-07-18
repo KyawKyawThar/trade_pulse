@@ -16,6 +16,9 @@ CONSOLE_URL := http://localhost:8084
 # for a symbol keep order on one partition; RF=1 for single-broker dev.
 KAFKA_TOPICS := trades.raw orderbook.raw candles
 KAFKA_PARTITIONS ?= 3
+# 7 days, matching docs/ARCHITECTURE.md's "days/weeks retention" intent — set
+# explicitly so it doesn't silently depend on whatever the cluster default is.
+KAFKA_RETENTION_MS ?= 604800000
 
 # ---------------------------------------------------------------------------
 # Discover services automatically
@@ -285,11 +288,11 @@ kafka-topics:
 # Idempotent: rpk skips topics that already exist.
 .PHONY: kafka-init
 kafka-init:
-	$(RPK) topic create $(KAFKA_TOPICS) -p $(KAFKA_PARTITIONS)
+	$(RPK) topic create $(KAFKA_TOPICS) -p $(KAFKA_PARTITIONS) -c retention.ms=$(KAFKA_RETENTION_MS)
 
 .PHONY: topic-create
 topic-create: guard-t
-	$(RPK) topic create $(t) -p $(KAFKA_PARTITIONS)
+	$(RPK) topic create $(t) -p $(KAFKA_PARTITIONS) -c retention.ms=$(KAFKA_RETENTION_MS)
 
 .PHONY: topic-delete
 topic-delete: guard-t

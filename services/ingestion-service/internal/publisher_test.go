@@ -14,6 +14,7 @@ func TestPublisherDeliveryStatus(t *testing.T) {
 	rec := &kgo.Record{Topic: domain.TopicTradesRaw, Key: []byte("btcusdt")}
 
 	t.Run("healthy with no deliveries yet", func(t *testing.T) {
+
 		p := &Publisher{log: zerolog.Nop()}
 
 		if err := p.deliveryStatus(); err != nil {

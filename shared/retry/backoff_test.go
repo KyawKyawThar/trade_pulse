@@ -1,4 +1,4 @@
-package internal
+package retry
 
 import (
 	"testing"
@@ -72,7 +72,7 @@ func TestBackoffObserveResets(t *testing.T) {
 
 func TestBackoffDefaultRNGWithinBounds(t *testing.T) {
 	// Smoke-test the real math/rand/v2 path: delays stay within [0, ceiling].
-	b := newBackoff()
+	b := NewBackoff()
 
 	for i := range 50 {
 		b.attempt = i % 10

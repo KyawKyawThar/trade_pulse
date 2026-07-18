@@ -21,6 +21,7 @@ import (
 	"trade_pulse/shared/httpserver"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/errgroup"
 )
 
 // Service is processor-service's root component.
@@ -36,6 +37,12 @@ func New(cfg config.Config, log zerolog.Logger, ops *httpserver.Server) *Service
 	return &Service{cfg: cfg, log: log, ops: ops}
 }
 
+// Run builds the trades.raw consumer and a worker pool (pool.go) that drains
+// it, then drives both until ctx is cancelled. The consumer's poll loop only
+// ever calls pool.Submit, so a slow trade can't stall Poll; each of the pool's
+// workers calls the stub handler below. As later Sprint 2 tasks land, that
+// stub is replaced by the fan-out to the enricher, order book and Redis
+// writer — for now it logs at debug, the hand-off point those files take over.
 func (s *Service) Run(ctx context.Context) error {
 	s.log.Info().Msg("processor-service starting")
 
@@ -48,15 +55,21 @@ func (s *Service) Run(ctx context.Context) error {
 	defer consumer.Close()
 	s.ops.RegisterChecker(consumer)
 
-	handler := Chain(s.handleTrade, withLogging(s.log))
-	err = consumer.Run(ctx, handler)
+	pool := NewWorkerPool(s.cfg.Processor.PoolSize, s.handleTrade, s.log)
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error { return pool.Start(ctx) })
+	eg.Go(func() error { return consumer.Run(ctx, pool.Submit) })
+	err = eg.Wait()
 	s.log.Info().Msg("processor-service stopping")
+
 	return err
+
 }
 
-// handleTrade is the terminal handler in the middleware chain — a no-op
-// until Sprint 2's enrichment/fan-out/Redis-write land as the real trade
-// processing.
+// handleTrade is the temporary per-trade sink each pool worker calls, until
+// fanout.go/enricher.go land. It logs each decoded trade at debug so the
+// consumer + pool can be verified end-to-end.
 func (s *Service) handleTrade(_ context.Context, event domain.TradeEvent) error {
 	s.log.Debug().
 		Str("symbol", event.Symbol).
