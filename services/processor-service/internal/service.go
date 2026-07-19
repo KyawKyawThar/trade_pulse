@@ -37,12 +37,15 @@ func New(cfg config.Config, log zerolog.Logger, ops *httpserver.Server) *Service
 	return &Service{cfg: cfg, log: log, ops: ops}
 }
 
-// Run builds the trades.raw consumer and a worker pool (pool.go) that drains
-// it, then drives both until ctx is cancelled. The consumer's poll loop only
-// ever calls pool.Submit, so a slow trade can't stall Poll; each of the pool's
-// workers calls the stub handler below. As later Sprint 2 tasks land, that
-// stub is replaced by the fan-out to the enricher, order book and Redis
-// writer — for now it logs at debug, the hand-off point those files take over.
+// Run builds the trades.raw consumer, a worker pool (pool.go) that drains it,
+// and a fan-out (fanout.go) that each pool worker publishes into, then drives
+// all of it until ctx is cancelled. The consumer's poll loop only ever calls
+// pool.Submit, so a slow trade can't stall Poll; each pool worker's handler is
+// fanOut.Publish, so a decoded trade reaches every downstream sink. Until
+// enricher.go/orderbook.go/redis_writer.go (Sprint 2 tasks 4-6) and
+// api-service's ws/broadcaster.go (Sprint 4) exist, the sinks are drained by
+// the logging stub below — the hand-off point those files take over.
+
 func (s *Service) Run(ctx context.Context) error {
 	s.log.Info().Msg("processor-service starting")
 
@@ -55,11 +58,16 @@ func (s *Service) Run(ctx context.Context) error {
 	defer consumer.Close()
 	s.ops.RegisterChecker(consumer)
 
-	pool := NewWorkerPool(s.cfg.Processor.PoolSize, s.handleTrade, s.log)
+	fanOut := NewFanOut(s.cfg.Processor.FanOutBuffer)
+	pool := NewWorkerPool(s.cfg.Processor.PoolSize, fanOut.Publish, s.log)
 
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return pool.Start(ctx) })
 	eg.Go(func() error { return consumer.Run(ctx, pool.Submit) })
+
+	eg.Go(func() error { s.drainSink(ctx, "order_book", fanOut.OrderBookUpdate()); return nil })
+	eg.Go(func() error { s.drainSink(ctx, "redis_writer", fanOut.RedisWriter()); return nil })
+	eg.Go(func() error { s.drainSink(ctx, "broadcaster", fanOut.Broadcast()); return nil })
 	err = eg.Wait()
 	s.log.Info().Msg("processor-service stopping")
 
@@ -67,16 +75,25 @@ func (s *Service) Run(ctx context.Context) error {
 
 }
 
-// handleTrade is the temporary per-trade sink each pool worker calls, until
-// fanout.go/enricher.go land. It logs each decoded trade at debug so the
-// consumer + pool can be verified end-to-end.
-func (s *Service) handleTrade(_ context.Context, event domain.TradeEvent) error {
-	s.log.Debug().
-		Str("symbol", event.Symbol).
-		Float64("price", event.Price).
-		Float64("quantity", event.Quantity).
-		Str("side", string(event.Side)).
-		Int64("trade_id", event.TradeID).
-		Msg("consumed trade")
-	return nil
+// drainSink is the temporary consumer for one fan-out sink, until
+// enricher.go/orderbook.go/redis_writer.go and api-service's
+// ws/broadcaster.go replace it. It logs each trade at debug, tagged with
+// which sink received it, so the fan-out can be verified end-to-end; it
+// returns once ctx is cancelled.
+func (s *Service) drainSink(ctx context.Context, sink string, ch <-chan domain.TradeEvent) {
+	for {
+		select {
+		case event := <-ch:
+			s.log.Debug().
+				Str("sink", sink).
+				Str("symbol", event.Symbol).
+				Float64("price", event.Price).
+				Float64("quantity", event.Quantity).
+				Str("side", string(event.Side)).
+				Int64("trade_id", event.TradeID).
+				Msg("fan-out sink received trade")
+		case <-ctx.Done():
+			return
+		}
+	}
 }

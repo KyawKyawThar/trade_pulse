@@ -101,7 +101,7 @@ with backoff without crashing the process.
 |---|---|---|---|
 | 1 | `consumer.go`: Kafka consumer group on `trades.raw` (processor's own group) | 5h | ✅ DONE |
 | 2 | `pool.go`: worker pool (configurable size, ~100) via `errgroup` (§ *Pattern 1*) | 5h | ✅ DONE |
-| 3 | `fanout.go`: fan-out one trade to N downstream channels (order-book updater, Redis writer, broadcaster) (§ *Pattern 2*) | 4h | TODO |
+| 3 | `fanout.go`: fan-out one trade to N downstream channels (order-book updater, Redis writer, broadcaster) (§ *Pattern 2*) | 4h | ✅ DONE |
 | 4 | `enricher.go`: add notional (`price × qty`), market metadata (§ *Data Flow* step 4) | 3h | TODO |
 | 5 | `orderbook.go`: in-memory order book with `sync.RWMutex` — concurrent reads, single writer (§ *Pattern 3*) | 6h | TODO |
 | 6 | `redis_writer.go`: latest-trade, **live `price:<symbol>` (USD)**, and order-book snapshot writes to Redis — `price:<symbol>` is the source the Sprint-5 `/convert` endpoint reads (§ *Decision 4* store, *Service 6* data flow) | 4h | TODO |

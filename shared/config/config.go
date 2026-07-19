@@ -33,7 +33,8 @@ type IngestionConfig struct {
 }
 
 type ProcessorConfig struct {
-	PoolSize int `mapstructure:"pool_size"`
+	PoolSize     int `mapstructure:"pool_size"`
+	FanOutBuffer int `mapstructure:"fanout_buffer"` // per-sink channel capacity in fanout.go
 }
 
 // KafkaConfig is the event-streaming backbone connection.
@@ -97,6 +98,7 @@ func Load(serviceName string) (Config, error) {
 	v.SetDefault("fx.breaker_cooldown", 30*time.Second)
 	v.SetDefault("ingestion.symbols", []string{"btcusdt", "ethusdt", "solusdt"})
 	v.SetDefault("processor.pool_size", 100)
+	v.SetDefault("processor.fanout_buffer", 256)
 
 	// Environment: TRADEPULSE_REDIS_ADDR -> redis.addr, etc.
 	v.SetEnvPrefix("TRADEPULSE")
