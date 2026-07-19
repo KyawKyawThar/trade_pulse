@@ -172,7 +172,7 @@ func TestWorkerPoolSubmitBlocksThenRespectsContext(t *testing.T) {
 	select {
 	case err := <-errCh:
 		t.Fatalf("Submit returned early with err=%v, want it to block", err)
-	case <-time.After(50 * time.Microsecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 	submitCancel()
 
