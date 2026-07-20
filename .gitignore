@@ -4,6 +4,7 @@
 *.test
 *.out
 coverage.*
+SPRINT_PLAN.md
 
 # Local config & secrets (never commit real provider keys / SMTP creds)
 config.yaml
@@ -13,7 +14,7 @@ config.yaml
 
 # Editor / OS
 .DS_Store
-.idea/
+.idea/0
 .vscode/
 *.swp
 

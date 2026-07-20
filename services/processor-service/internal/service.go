@@ -8,7 +8,8 @@ package internal
 //	consumer.go       — Kafka consumer group on trades.raw
 //	pool.go           — worker pool (~100) via errgroup (Pattern 1)
 //	fanout.go         — one trade -> N downstream channels (Pattern 2)
-//	enricher.go       — add notional (price*qty), metadata
+//	enricher.go       — add notional (price*qty), market metadata
+//	metadata.go       — static symbol -> base/quote/exchange lookup
 //	orderbook.go      — in-memory book with sync.RWMutex (Pattern 3)
 //	redis_writer.go   — latest-trade + price:<symbol> + book snapshot to Redis
 //	whale_detector.go — notional > $500K -> publish to RabbitMQ (Sprint 6)
@@ -38,13 +39,16 @@ func New(cfg config.Config, log zerolog.Logger, ops *httpserver.Server) *Service
 }
 
 // Run builds the trades.raw consumer, a worker pool (pool.go) that drains it,
-// and a fan-out (fanout.go) that each pool worker publishes into, then drives
-// all of it until ctx is cancelled. The consumer's poll loop only ever calls
-// pool.Submit, so a slow trade can't stall Poll; each pool worker's handler is
-// fanOut.Publish, so a decoded trade reaches every downstream sink. Until
-// enricher.go/orderbook.go/redis_writer.go (Sprint 2 tasks 4-6) and
-// api-service's ws/broadcaster.go (Sprint 4) exist, the sinks are drained by
-// the logging stub below — the hand-off point those files take over.
+// an enricher (enricher.go) that adds notional and market metadata to each
+// trade, and a fan-out (fanout.go) that each enriched trade is published
+// into, then drives all of it until ctx is cancelled. The consumer's poll
+// loop only ever calls pool.Submit, so a slow trade can't stall Poll; each
+// pool worker's handler is enricher.Handle, which computes notional, looks up
+// market metadata (metadata.go), and forwards to fanOut.Publish, so a decoded
+// trade reaches every downstream sink already enriched. Until
+// orderbook.go/redis_writer.go (Sprint 2 tasks 5-6) and api-service's
+// ws/broadcaster.go (Sprint 4) exist, the sinks are drained by the logging
+// stub below — the hand-off point those files take over.
 
 func (s *Service) Run(ctx context.Context) error {
 	s.log.Info().Msg("processor-service starting")
@@ -59,7 +63,8 @@ func (s *Service) Run(ctx context.Context) error {
 	s.ops.RegisterChecker(consumer)
 
 	fanOut := NewFanOut(s.cfg.Processor.FanOutBuffer)
-	pool := NewWorkerPool(s.cfg.Processor.PoolSize, fanOut.Publish, s.log)
+	enricher := NewEnricher(fanOut.Publish, NewDefaultMetadataProvider())
+	pool := NewWorkerPool(s.cfg.Processor.PoolSize, enricher.Handle, s.log)
 
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return pool.Start(ctx) })
@@ -89,8 +94,11 @@ func (s *Service) drainSink(ctx context.Context, sink string, ch <-chan domain.T
 				Str("symbol", event.Symbol).
 				Float64("price", event.Price).
 				Float64("quantity", event.Quantity).
+				Float64("notional", event.Notional).
 				Str("side", string(event.Side)).
 				Int64("trade_id", event.TradeID).
+				Str("base_asset", event.Market.BaseAsset).
+				Str("exchange", event.Market.Exchange).
 				Msg("fan-out sink received trade")
 		case <-ctx.Done():
 			return
