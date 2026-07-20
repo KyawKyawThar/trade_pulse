@@ -12,6 +12,19 @@ const (
 	SideSell Side = "SELL"
 )
 
+// MarketMetadata is reference data about a symbol: which assets it trades and
+// where. Unlike Price/Quantity, it doesn't vary trade to trade — it's a
+// lookup keyed by Symbol, filled in by processor-service's enricher (see
+// MetadataProvider in services/processor-service/internal/metadata.go).
+type MarketMetadata struct {
+	// BaseAsset is the asset being bought/sold, e.g. "BTC" for "BTCUSDT".
+	BaseAsset string `json:"base_asset,omitempty"`
+	// QuoteAsset is the asset it's priced in, e.g. "USDT" for "BTCUSDT".
+	QuoteAsset string `json:"quote_asset,omitempty"`
+	// Exchange is where the trade executed, e.g. "Binance".
+	Exchange string `json:"exchange,omitempty"`
+}
+
 // TradeEvent is the normalized representation of a single executed trade,
 // produced by ingestion-service from a raw exchange message and published to
 // the Kafka topic TopicTradesRaw. Every downstream consumer (processor,
@@ -36,6 +49,10 @@ type TradeEvent struct {
 	// Notional is Price*Quantity in the quote asset. Set by processor-service's
 	// enricher; zero on the raw event straight off ingestion.
 	Notional float64 `json:"notional,omitempty"`
+	// Market is reference data about Symbol (base/quote asset, exchange). Set
+	// by processor-service's enricher; zero-valued on the raw event straight
+	// off ingestion.
+	Market MarketMetadata `json:"market"`
 	// IsWhale is set by processor-service when Notional crosses the threshold.
 	IsWhale bool `json:"is_whale,omitempty"`
 	// EventTime is the exchange's trade timestamp (when it happened upstream).
