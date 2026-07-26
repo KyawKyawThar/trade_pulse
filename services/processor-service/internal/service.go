@@ -65,12 +65,13 @@ func (s *Service) Run(ctx context.Context) error {
 	fanOut := NewFanOut(s.cfg.Processor.FanOutBuffer)
 	enricher := NewEnricher(fanOut.Publish, NewDefaultMetadataProvider())
 	pool := NewWorkerPool(s.cfg.Processor.PoolSize, enricher.Handle, s.log)
+	orderBooks := NewOrderBookStore()
 
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return pool.Start(ctx) })
 	eg.Go(func() error { return consumer.Run(ctx, pool.Submit) })
 
-	eg.Go(func() error { s.drainSink(ctx, "order_book", fanOut.OrderBookUpdate()); return nil })
+	eg.Go(func() error { orderBooks.Run(ctx, fanOut.OrderBookUpdate()); return nil })
 	eg.Go(func() error { s.drainSink(ctx, "redis_writer", fanOut.RedisWriter()); return nil })
 	eg.Go(func() error { s.drainSink(ctx, "broadcaster", fanOut.Broadcast()); return nil })
 	err = eg.Wait()
