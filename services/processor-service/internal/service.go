@@ -1,15 +1,15 @@
 package internal
 
 // Package internal contains processor-service's logic: consume trades.raw from
-// Kafka, run them through a worker pool, to the order-book updater /
+// Kafka, run them through a worker pool, fan out to the order-book updater /
 // Redis writer / whale detector, and write live snapshots to Redis.
 //
+// SCOPE: Sprint-0 skeleton. Real work (SPRINT_PLAN.md § Sprint 2 & 6):
 //
 //	consumer.go       — Kafka consumer group on trades.raw
 //	pool.go           — worker pool (~100) via errgroup (Pattern 1)
 //	fanout.go         — one trade -> N downstream channels (Pattern 2)
-//	enricher.go       — add notional (price*qty), market metadata
-//	metadata.go       — static symbol -> base/quote/exchange lookup
+//	enricher.go       — add notional (price*qty), metadata
 //	orderbook.go      — in-memory book with sync.RWMutex (Pattern 3)
 //	redis_writer.go   — latest-trade + price:<symbol> + book snapshot to Redis
 //	whale_detector.go — notional > $500K -> publish to RabbitMQ (Sprint 6)
@@ -38,17 +38,10 @@ func New(cfg config.Config, log zerolog.Logger, ops *httpserver.Server) *Service
 	return &Service{cfg: cfg, log: log, ops: ops}
 }
 
-// Run builds the trades.raw consumer, a worker pool (pool.go) that drains it,
-// an enricher (enricher.go) that adds notional and market metadata to each
-// trade, and a fan-out (fanout.go) that each enriched trade is published
-// into, then drives all of it until ctx is cancelled. The consumer's poll
-// loop only ever calls pool.Submit, so a slow trade can't stall Poll; each
-// pool worker's handler is enricher.Handle, which computes notional, looks up
-// market metadata (metadata.go), and forwards to fanOut.Publish, so a decoded
-// trade reaches every downstream sink already enriched. Until
-// orderbook.go/redis_writer.go (Sprint 2 tasks 5-6) and api-service's
-// ws/broadcaster.go (Sprint 4) exist, the sinks are drained by the logging
-// stub below — the hand-off point those files take over.
+// drainSink is the temporary consumer for one fan-out sink, until
+// orderbook.go/redis_writer.go and api-service's ws/broadcaster.go replace
+// it. It logs each trade at debug, tagged with which sink received it, so
+// the fan-out can be verified end-to-end; it returns once ctx is cancelled.
 
 func (s *Service) Run(ctx context.Context) error {
 	s.log.Info().Msg("processor-service starting")
@@ -66,7 +59,19 @@ func (s *Service) Run(ctx context.Context) error {
 	enricher := NewEnricher(fanOut.Publish, NewDefaultMetadataProvider())
 	pool := NewWorkerPool(s.cfg.Processor.PoolSize, enricher.Handle, s.log)
 	orderBooks := NewOrderBookStore()
+	redisWriter, err := NewRedisWriter(s.cfg.Redis, orderBooks, s.log)
 
+	if err != nil {
+		return fmt.Errorf("redis writer %w", err)
+	}
+
+	defer func() {
+		if err := redisWriter.Close(); err != nil {
+			s.log.Warn().Err(err).Msg("redis writer close")
+		}
+	}()
+
+	s.ops.RegisterChecker(redisWriter)
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return pool.Start(ctx) })
 	eg.Go(func() error { return consumer.Run(ctx, pool.Submit) })
