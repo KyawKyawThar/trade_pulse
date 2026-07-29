@@ -24,6 +24,7 @@ type Config struct {
 	FX         FXConfig         `mapstructure:"fx"`
 	Ingestion  IngestionConfig  `mapstructure:"ingestion"`
 	Processor  ProcessorConfig  `mapstructure:"processor"`
+	API        APIConfig        `mapstructure:"api"`
 }
 
 // IngestionConfig tunes ingestion-service: the set of symbols to stream from
@@ -52,6 +53,10 @@ type RedisConfig struct {
 // RabbitMQConfig is the alert task-queue connection.
 type RabbitMQConfig struct {
 	URL string `mapstructure:"url"`
+}
+
+type APIConfig struct {
+	PublicAddr string `mapstructure:"publicaddr"`
 }
 
 // ClickHouseConfig is the analytics OLAP store connection.

@@ -3,6 +3,7 @@ module trade_pulse/services/api-service
 go 1.26.1
 
 require (
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/rs/zerolog v1.35.1
 	trade_pulse/shared v0.0.0
 )
@@ -11,6 +12,8 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/go-chi/chi v1.5.5
+	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -27,6 +30,7 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/sync v0.22.0 // indirect
