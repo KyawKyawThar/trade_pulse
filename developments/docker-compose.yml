@@ -151,6 +151,10 @@ services:
     <<: *service-base
     build: { context: .., dockerfile: services/api-service/Dockerfile }
     ports: ["8080:8080"]
+    environment:
+      <<: *service-env
+      TRADEPULSE_HTTP_ADDR: ":8087"
+      TRADEPULSE_API_PUBLIC_ADDR: ":8080"
     depends_on:
       redis: { condition: service_healthy }
 

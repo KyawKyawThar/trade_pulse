@@ -15,7 +15,7 @@ scrape_configs:
     - ingestion-service:8080
     - processor-service:8080
     - analytics-service:8080
-    - api-service:8080
+    - api-service:8087
     - notification-service:8080
     - fx-rate-service:8080
     labels:
