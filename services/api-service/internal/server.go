@@ -40,6 +40,7 @@ func NewRouter(reader *rest.RedisReader) http.Handler {
 	router.Use(middleware.Recoverer)
 
 	router.Route("/api/v1", func(r chi.Router) {
+		r.Get("/health", reader.Health)
 		r.Get("/trades/{symbol}", reader.LatestTrade)
 		r.Get("/orderbook/{symbol}", reader.OrderBook)
 	})
