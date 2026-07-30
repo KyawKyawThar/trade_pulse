@@ -163,3 +163,51 @@ func TestRedisReaderCheckPingsRedis(t *testing.T) {
 		t.Fatalf("Check() error = %v, want %v", err, wantErr)
 	}
 }
+
+func TestHealthReturnsDegradedWhenRedisPingFails(t *testing.T) {
+	reader := NewRedisReaderWithClient(&fakeRedisClient{pingErr: errors.New("redis down")})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+
+	reader.Health(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+
+	var got healthResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if got.Status != "degraded" || got.Checks["redis"] == "ok" {
+		t.Fatalf("health response = %+v, want degraded Redis check", got)
+	}
+}
+
+func TestHealthReturnsRedisPingAndKafkaLagOwnership(t *testing.T) {
+
+	reader := NewRedisReaderWithClient(&fakeRedisClient{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+
+	reader.Health(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var got healthResponse
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if got.Status != "ok" || got.Checks["redis"] != "ok" {
+		t.Fatalf("health response = %+v, want ok Redis check", got)
+	}
+
+	if got.Checks["kafka_consumer_lag"] != "not_applicable" {
+		t.Fatalf("kafka_consumer_lag check = %q, want not_applicable", got.Checks["kafka_consumer_lag"])
+	}
+}
