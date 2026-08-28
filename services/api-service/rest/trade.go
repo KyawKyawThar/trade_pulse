@@ -7,7 +7,7 @@ import (
 	"strings"
 	"trade_pulse/shared/domain"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
 
