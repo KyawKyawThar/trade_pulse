@@ -1,7 +1,21 @@
-# Dependabot keeps dependencies current across the monorepo. Each Go module is a
-# separate ecosystem entry (Dependabot does not auto-discover nested go.mod), so
-# adding a service means adding its directory here. Grouped updates keep PR noise
-# down — one PR per module per week instead of one per dependency.
+# Dependabot keeps dependencies current across the monorepo.
+#
+# Two things this config is deliberately shaped around:
+#
+#  1. Multi-directory entries (`directories:`, plural) instead of one entry per
+#     module. Every service module carries `replace trade_pulse/shared =>
+#     ../../shared`, so it compiles shared from source and must pin shared's
+#     transitive dependencies in its own go.sum. A bump landing in shared alone
+#     therefore breaks all six services with "go: updates to go.mod needed".
+#     Updating every module in one PR keeps them consistent; a glob also means
+#     adding a service no longer means remembering to add it here.
+#
+#  2. The docker ecosystem covers *all* services. It previously listed only
+#     ingestion-service, so that one Dockerfile advanced to Go 1.26.5 while the
+#     other five silently sat on 1.26.1 — five missed Go patch releases,
+#     security fixes included.
+#
+# Grouped updates keep PR noise down: one PR per ecosystem per week.
 version: 2
 updates:
 # GitHub Actions used by the workflows.
@@ -11,37 +25,21 @@ updates:
   groups:
     actions: { patterns: [ "*" ] }
 
-# Go modules — one entry per module.
+# Go modules — shared plus every service, updated together in one PR so the
+# `replace`-linked modules never disagree about a dependency version.
 - package-ecosystem: gomod
-  directory: /shared
+  directories:
+  - /shared
+  - /services/*
   schedule: { interval: weekly }
-  groups: { go-deps: { patterns: [ "*" ] } }
-- package-ecosystem: gomod
-  directory: /services/ingestion-service
-  schedule: { interval: weekly }
-  groups: { go-deps: { patterns: [ "*" ] } }
-- package-ecosystem: gomod
-  directory: /services/processor-service
-  schedule: { interval: weekly }
-  groups: { go-deps: { patterns: [ "*" ] } }
-- package-ecosystem: gomod
-  directory: /services/analytics-service
-  schedule: { interval: weekly }
-  groups: { go-deps: { patterns: [ "*" ] } }
-- package-ecosystem: gomod
-  directory: /services/api-service
-  schedule: { interval: weekly }
-  groups: { go-deps: { patterns: [ "*" ] } }
-- package-ecosystem: gomod
-  directory: /services/notification-service
-  schedule: { interval: weekly }
-  groups: { go-deps: { patterns: [ "*" ] } }
-- package-ecosystem: gomod
-  directory: /services/fx-rate-service
-  schedule: { interval: weekly }
-  groups: { go-deps: { patterns: [ "*" ] } }
+  groups:
+    go-deps: { patterns: [ "*" ] }
 
-# Base images in the Dockerfiles.
+# Base images in the Dockerfiles — every service, so the Go toolchain in the
+# images cannot drift apart again.
 - package-ecosystem: docker
-  directory: /services/ingestion-service
+  directories:
+  - /services/*
   schedule: { interval: weekly }
+  groups:
+    base-images: { patterns: [ "*" ] }
