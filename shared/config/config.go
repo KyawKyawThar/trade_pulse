@@ -41,6 +41,13 @@ type ProcessorConfig struct {
 // KafkaConfig is the event-streaming backbone connection.
 type KafkaConfig struct {
 	Brokers []string `mapstructure:"brokers"`
+
+	// LagRefreshInterval is how often a service that *observes* a consumer
+	// group (rather than joining it) re-reads that group's lag in the
+	// background for its health report. Health endpoints serve the cached
+	// reading, so this — not the probe rate — is what determines load on the
+	// group coordinator.
+	LagRefreshInterval time.Duration `mapstructure:"lag_refresh_interval"`
 }
 
 // RedisConfig is the cache connection (live snapshots, dedup, rate limits).
@@ -90,6 +97,7 @@ func Load(serviceName string) (Config, error) {
 	v.SetDefault("log_level", "info")
 	v.SetDefault("http_addr", ":8080")
 	v.SetDefault("kafka.brokers", []string{"localhost:9093"})
+	v.SetDefault("kafka.lag_refresh_interval", 10*time.Second)
 	v.SetDefault("redis.addr", "localhost:6379")
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("rabbitmq.url", "amqp://guest:guest@localhost:5672/")

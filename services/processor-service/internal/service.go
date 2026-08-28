@@ -38,11 +38,6 @@ func New(cfg config.Config, log zerolog.Logger, ops *httpserver.Server) *Service
 	return &Service{cfg: cfg, log: log, ops: ops}
 }
 
-// drainSink is the temporary consumer for one fan-out sink, until
-// orderbook.go/redis_writer.go and api-service's ws/broadcaster.go replace
-// it. It logs each trade at debug, tagged with which sink received it, so
-// the fan-out can be verified end-to-end; it returns once ctx is cancelled.
-
 func (s *Service) Run(ctx context.Context) error {
 	s.log.Info().Msg("processor-service starting")
 
@@ -77,7 +72,7 @@ func (s *Service) Run(ctx context.Context) error {
 	eg.Go(func() error { return consumer.Run(ctx, pool.Submit) })
 
 	eg.Go(func() error { orderBooks.Run(ctx, fanOut.OrderBookUpdate()); return nil })
-	eg.Go(func() error { s.drainSink(ctx, "redis_writer", fanOut.RedisWriter()); return nil })
+	eg.Go(func() error { redisWriter.Run(ctx, fanOut.RedisWriter()); return nil })
 	eg.Go(func() error { s.drainSink(ctx, "broadcaster", fanOut.Broadcast()); return nil })
 	err = eg.Wait()
 	s.log.Info().Msg("processor-service stopping")
@@ -86,11 +81,12 @@ func (s *Service) Run(ctx context.Context) error {
 
 }
 
-// drainSink is the temporary consumer for one fan-out sink, until
-// enricher.go/orderbook.go/redis_writer.go and api-service's
-// ws/broadcaster.go replace it. It logs each trade at debug, tagged with
-// which sink received it, so the fan-out can be verified end-to-end; it
-// returns once ctx is cancelled.
+// drainSink is the temporary consumer for one fan-out sink. Only the
+// broadcaster still uses it, until api-service's ws/broadcaster.go lands
+// (SPRINT_PLAN.md Sprint 4); the order-book and Redis sinks now have real
+// consumers. It logs each trade at debug, tagged with which sink received
+// it, so the fan-out can be verified end-to-end; it returns once ctx is
+// cancelled.
 func (s *Service) drainSink(ctx context.Context, sink string, ch <-chan domain.TradeEvent) {
 	for {
 		select {

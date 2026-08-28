@@ -66,6 +66,11 @@ func (b *Backoff) Observe(uptime time.Duration) {
 // Attempt reports how many consecutive failures the sequence has seen so far.
 func (b *Backoff) Attempt() int { return b.attempt }
 
+// Reset restarts the sequence from Base. Use it where success is observed
+// directly (a completed poll, a successful publish) rather than inferred from
+// uptime as Observe does.
+func (b *Backoff) Reset() { b.attempt = 0 }
+
 // ceiling is the un-jittered delay for the current attempt: Base doubled per
 // consecutive failure, saturating at Max.
 func (b *Backoff) ceiling() time.Duration {
