@@ -18,9 +18,9 @@ type PublicServer struct {
 	srv *http.Server
 }
 
-func NewPublicServer(addr string, reader *rest.RedisReader, log zerolog.Logger) *PublicServer {
+func NewPublicServer(addr string, reader *rest.RedisReader, health *rest.HealthHandler, log zerolog.Logger) *PublicServer {
 
-	router := NewRouter(reader)
+	router := NewRouter(reader, health)
 
 	return &PublicServer{
 		log: log,
@@ -32,7 +32,7 @@ func NewPublicServer(addr string, reader *rest.RedisReader, log zerolog.Logger) 
 	}
 }
 
-func NewRouter(reader *rest.RedisReader) http.Handler {
+func NewRouter(reader *rest.RedisReader, health *rest.HealthHandler) http.Handler {
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
@@ -40,7 +40,7 @@ func NewRouter(reader *rest.RedisReader) http.Handler {
 	router.Use(middleware.Recoverer)
 
 	router.Route("/api/v1", func(r chi.Router) {
-		r.Get("/health", reader.Health)
+		r.Get("/health", health.Health)
 		r.Get("/trades/{symbol}", reader.LatestTrade)
 		r.Get("/orderbook/{symbol}", reader.OrderBook)
 	})

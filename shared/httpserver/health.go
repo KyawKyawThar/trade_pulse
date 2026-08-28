@@ -14,6 +14,15 @@ type Checker interface {
 	Check(ctx context.Context) error
 }
 
+// Detailer is an optional interface a Checker may implement to attach
+// structured detail to the health report — a per-partition lag breakdown, a
+// circuit-breaker state, a last-successful-poll timestamp. The ops health
+// endpoint is not public, so this is the right place for internal topology
+// that must stay off the public API.
+type Detailer interface {
+	Details() any
+}
+
 // CheckerFunc adapts a plain (name, func) pair into a Checker, mirroring the
 // http.HandlerFunc idiom so callers in other packages don't need their own
 // Checker type for a one-off probe (e.g. a Kafka producer or Redis ping).
