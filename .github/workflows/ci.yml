@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.26.1"
+  GO_VERSION: "1.26.6"
   # CRITICAL: turn the workspace OFF in CI. go.work is a local-dev convenience;
   # CI must validate each module the way `docker build` does — through its own
   # go.mod + `replace ../../shared`. If CI used the workspace it could pass while
